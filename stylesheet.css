@@ -263,8 +263,11 @@ th {
 .num-col { text-align: right; }
 td.num-col { font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 0.87rem; }
 
-tbody tr { cursor: pointer; transition: background 0.12s; }
+tbody tr { transition: background 0.12s; }
 tbody tr:hover { background: var(--surface-2); }
+/* Only the ranking rows do anything when clicked; a pointer on the provider
+   table would promise an interaction that isn't there. */
+#ranking tbody tr { cursor: pointer; }
 tbody tr.selected { background: var(--accent-soft); }
 tbody tr.best td:first-child::before {
   content: "★";
@@ -276,6 +279,10 @@ td.total { font-weight: 650; }
 .delta { color: var(--text-dim); }
 
 .footnote { font-size: 0.83rem; color: var(--text-dim); margin: 12px 0 0; }
+
+#provider-table-wrap { margin-top: 34px; }
+#provider-table-wrap h3 { font-size: 1.05rem; margin: 0 0 4px; }
+#provider-table-wrap .lede.small { margin: 0 0 14px; }
 
 /* --- charts ------------------------------------------------------------ */
 

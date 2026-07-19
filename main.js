@@ -142,20 +142,29 @@ function renderCityNote() {
     (city.name === "San Diego" ? " San Diego is the only city with a differential." : "");
 }
 
+/**
+ * The overlays a household in the selected city can actually buy. Both the
+ * provider picker and the provider comparison read from this, so the table can
+ * never offer a product the picker won't let you select.
+ */
+function overlaysForCity() {
+  const city = currentCity();
+  if (!city) return state.overlays;
+  if (!city.cca) return [];
+  return state.overlays.filter(
+    (o) =>
+      o.doc.provider === city.cca &&
+      (!o.doc.rate_group || o.doc.rate_group === city.cca_rate_group),
+  );
+}
+
 function buildProviderSelect() {
   const opts = [`<option value="">SDG&E (bundled)</option>`];
-  const city = currentCity();
   // Only the CCA that actually serves this city, and only its rate group. A
   // customer can always opt out to SDG&E, so bundled stays available.
-  const available = state.overlays.filter((o) =>
-    !city || !city.cca
-      ? false
-      : o.doc.provider === city.cca &&
-        (!o.doc.rate_group || o.doc.rate_group === city.cca_rate_group),
-  );
   // Group by provider so a CCA's several products sit together.
   const byProvider = new Map();
-  for (const o of (city ? available : state.overlays)) {
+  for (const o of overlaysForCity()) {
     if (!byProvider.has(o.doc.provider)) byProvider.set(o.doc.provider, []);
     byProvider.get(o.doc.provider).push(o);
   }
@@ -673,30 +682,89 @@ function drawMonthlyChart(intervals) {
  * The same plan across every provider that serves it. This is the comparison
  * the site exists for, and it only makes sense one plan at a time — different
  * plans have different delivery, so mixing them hides the generation story.
+ *
+ * Each overlay is costed on its own PCIA vintage, because the vintage travels
+ * with the rate group; costing them all on the picker's vintage would make two
+ * rate groups look like they differ in generation when they differ in exit fee.
  */
+function providerRows(intervals, planId) {
+  const rows = [];
+  try {
+    rows.push({
+      name: "SDG&E",
+      sub: "bundled generation",
+      file: "",
+      ...costPlan({ ...costOptions(intervals, null), planId }),
+    });
+  } catch { /* plan unpriceable; skip */ }
+
+  for (const o of overlaysForCity()) {
+    if (!o.doc.plans[planId]) continue;
+    try {
+      const opts = costOptions(intervals, o.doc);
+      opts.pciaVintage = o.doc.pcia_vintage ?? opts.pciaVintage;
+      rows.push({
+        name: `${o.doc.provider.toUpperCase()} ${o.doc.product}`,
+        sub: providerSub(o.doc),
+        file: o.file,
+        renewablePct: o.doc.renewable_content_pct ?? null,
+        ...costPlan({ ...opts, planId }),
+      });
+    } catch { /* provider doesn't serve this plan */ }
+  }
+  rows.sort((a, b) => a.total - b.total);
+  return rows;
+}
+
+/** The things that distinguish one CCA product from another, in one line. */
+function providerSub(doc) {
+  const bits = [];
+  if (doc.renewable_content_pct != null) bits.push(`${doc.renewable_content_pct}% renewable`);
+  if (doc.generation_credit_per_kwh) bits.push("includes a temporary credit");
+  if (doc.rate_group) bits.push(`${doc.rate_group} rates`);
+  return bits.join(" · ");
+}
+
+/**
+ * Providers side by side for the selected plan. The bar chart shows the spread;
+ * this shows why it exists, since the totals differ by a couple of dollars while
+ * the renewable content differs by half.
+ */
+function renderProviderTable(rows) {
+  const wrap = $("provider-table-wrap");
+  const plan = state.utility.plans.find((p) => p.id === state.selectedPlanId);
+  $("provider-table-plan").textContent = plan ? plan.name : "";
+
+  // One provider is not a comparison — hide the whole block rather than show a
+  // table whose only row is a "vs cheapest" of zero.
+  wrap.classList.toggle("hidden", rows.length < 2);
+  if (rows.length < 2) return;
+
+  const best = rows[0].total;
+  const selected = $("provider").value;
+  $("provider-table").tBodies[0].innerHTML = rows.map((r) => {
+    const delta = r.total - best;
+    const credits = r.lines.generationCredit - r.lines.exportCredit;
+    return `<tr class="${r.file === selected ? "selected" : ""}">
+      <td>${esc(r.name)}<span class="plan-sub">${esc(r.sub)}</span></td>
+      <td class="num-col">${r.renewablePct == null ? "—" : `${r.renewablePct}%`}</td>
+      <td class="num-col">${money(r.lines.generation)}</td>
+      <td class="num-col">${money(r.lines.pcia)}</td>
+      <td class="num-col">${Math.abs(credits) < 0.005 ? "—" : money(credits)}</td>
+      <td class="num-col total">${money(r.total)}</td>
+      <td class="num-col delta">${delta < 0.005 ? "—" : "+" + money(delta)}</td>
+    </tr>`;
+  }).join("");
+}
+
 function drawProviderChart(intervals) {
   destroy("providers");
   const planId = state.selectedPlanId;
   const plan = state.utility.plans.find((p) => p.id === planId);
   $("provider-chart-plan").textContent = plan ? plan.name : "";
 
-  const rows = [];
-  try {
-    rows.push({ name: "SDG&E", ...costPlan({ ...costOptions(intervals, null), planId }) });
-  } catch { /* plan unpriceable; skip */ }
-
-  for (const o of state.overlays) {
-    if (!o.doc.plans[planId]) continue;
-    try {
-      const opts = costOptions(intervals, o.doc);
-      opts.pciaVintage = o.doc.pcia_vintage ?? opts.pciaVintage;
-      rows.push({
-        name: `${o.doc.provider.toUpperCase()} ${o.doc.product}${o.doc.rate_group ? ` ${o.doc.rate_group}` : ""}`,
-        ...costPlan({ ...opts, planId }),
-      });
-    } catch { /* provider doesn't serve it */ }
-  }
-  rows.sort((a, b) => a.total - b.total);
+  const rows = providerRows(intervals, planId);
+  renderProviderTable(rows);
 
   charts.providers = new Chart($("chart-providers"), {
     type: "bar",

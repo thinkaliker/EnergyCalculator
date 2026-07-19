@@ -332,6 +332,31 @@ async function run() {
   check("leaving San Diego lowers the franchise fee and the total",
     cheapestTotal(doc) < sdTotal, `${sdTotal} -> ${cheapestTotal(doc)}`);
 
+  // --- provider comparison -------------------------------------------------
+  // Chula Vista is SDCP 2021v, which publishes three products, so the table has
+  // something to compare. Currently on it from the franchise fee check above.
+  const provRows = () => [...doc.querySelectorAll("#provider-table tbody tr")];
+  await waitFor(() => provRows().length > 1);
+  check("provider table lists bundled SDG&E plus every SDCP product",
+    provRows().length, 4);
+  check("provider table is sorted cheapest first", (() => {
+    const totals = provRows().map((r) => Number(r.cells[5].textContent.replace(/[^0-9.]/g, "")));
+    return totals.every((t, i) => i === 0 || t >= totals[i - 1]);
+  })(), provRows().map((r) => r.cells[5].textContent).join(" "));
+  check("provider table shows renewable content, which is what differs",
+    new Set(provRows().map((r) => r.cells[1].textContent)).size > 1,
+    provRows().map((r) => r.cells[1].textContent).join(" "));
+  check("provider table only lists providers the city picker offers", (() => {
+    const offered = [...doc.getElementById("provider").options].length;
+    return provRows().length === offered;
+  })(), `${provRows().length} rows`);
+
+  // A city with no CCA has nothing to compare against, so the block hides
+  // rather than showing a one-row table with a "vs cheapest" of zero.
+  setSelect(win, doc, "city", "Coronado");
+  await waitFor(() => doc.getElementById("provider-table-wrap").classList.contains("hidden"));
+  check("provider table hides when only SDG&E serves the city", true);
+
   check("no uncaught errors during the run", errors.length === 0, errors.join(" | "));
 
   document.getElementById("out").innerHTML =

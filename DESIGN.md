@@ -223,6 +223,18 @@ The charts are how the result gets understood, so they matter as much as the mat
 - **Plan comparison** — annual cost per plan, stacked by delivery / generation / fixed / adders.
 - **Seasonal usage** — monthly totals, since summer peak pricing dominates the annual answer.
 - **Added-load before/after** — the same daily shape with the new load overlaid.
+- **Same plan, every provider** — one plan held fixed while generation varies, since that is the only half a CCA changes.
+
+### Comparing providers
+
+The provider bar chart shows the spread; a table beside it shows why the spread exists. Providers are close on total and far apart on renewable content, so a ranking by dollars alone answers the wrong question — the table puts renewable percentage, generation, PCIA and credits next to the total so the trade-off is visible.
+
+Two rules keep it honest:
+
+- **Only providers that serve the selected city appear.** The provider picker is already filtered by city; the comparison reads from the same list, so it can never show a product you cannot buy.
+- **Each overlay is costed on its own PCIA vintage.** The vintage travels with the rate group. Costing every product on the picker's vintage would make two rate groups look like they differ in generation price when they differ in exit fee.
+
+A city with no CCA has nothing to compare, so the block hides rather than showing a single row ranked against itself.
 
 ## Load profiles
 
