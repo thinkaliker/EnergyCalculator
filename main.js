@@ -4,6 +4,8 @@
 import { parseIntervals } from "./src/parse.js";
 import { costPlan } from "./src/cost.js";
 import { nemEligiblePlans } from "./src/nem.js";
+import { applyBattery, createPriceRanker, BATTERY_SIZES } from "./src/scenario.js";
+import { createCalendar } from "./src/calendar.js";
 import {
   selectPeriod, trimIncompleteDays, describePeriod,
   hourlyShape, monthlyTotals, applyLoadProfile,
@@ -68,6 +70,20 @@ async function init() {
   });
   $("profile").addEventListener("change", onProfileChange);
   $("profile-kwh").addEventListener("input", renderAddedLoad);
+  // Changing the system size re-estimates the annual kWh; editing the kWh
+  // directly is treated as authoritative and is not overwritten again.
+  $("solar-kw").addEventListener("input", () => {
+    $("solar-kwh").value = Math.round(Number($("solar-kw").value) * solarYield());
+    renderAddedLoad();
+  });
+  for (const id of ["solar-kwh", "scenario-cost"]) {
+    $(id).addEventListener("input", renderAddedLoad);
+  }
+  $("battery").addEventListener("change", () => {
+    syncBatteryControls();
+    renderAddedLoad();
+  });
+  $("battery-strategy").addEventListener("change", renderAddedLoad);
 }
 
 const getJSON = async (path) => {
@@ -82,13 +98,27 @@ async function loadProfiles() {
     state.profiles = await Promise.all(
       idx.profiles.map(async (p) => ({ ...p, ...(await getJSON(`profiles/${p.path}`)) })),
     );
-    for (const p of state.profiles) {
+    // Generation profiles drive the solar control, not the added-load dropdown.
+    // Listing solar as a "load you could add" would be the wrong sign entirely.
+    for (const p of state.profiles.filter((p) => p.kind !== "generation")) {
       $("profile").insertAdjacentHTML("beforeend", `<option value="${p.id}">${esc(p.name)}</option>`);
+    }
+    if (!solarProfile()) {
+      for (const id of ["solar-kw", "solar-kwh"]) $(id).closest("label").remove();
     }
   } catch {
     // A missing profile library disables step 4 but must not break the calculator.
     $("step-load").remove();
   }
+}
+
+const solarProfile = () => state.profiles.find((p) => p.kind === "generation") ?? null;
+
+/** kWh per kW per year, used only to seed the output field from a system size. */
+const solarYield = () => solarProfile()?.specific_yield_kwh_per_kw ?? 1500;
+
+function syncBatteryControls() {
+  $("battery-strategy-wrap").classList.toggle("hidden", !$("battery").value);
 }
 
 // --- selects ---------------------------------------------------------------
@@ -482,6 +512,8 @@ function renderCaveats() {
   const items = [
     ["Solar is modelled; the annual true-up is not",
      "NEM 2.0 nets exports against imports at retail, and NEM 3.0 credits them at SDG&E's published hourly export prices — both are implemented. What isn't: if you end the period holding credit, that is paid out at a wholesale rate that varies hourly, so a household generating more than it uses will do slightly better than shown."],
+    ["What-if scenarios are modelled, not quoted",
+     "The solar curve is a clear-sky model for a generic south-facing San Diego roof — it knows the sun's position exactly and knows nothing about weather, your roof's angle, or the tree next to it. That is why the annual output is yours to enter: put the number from a real quote in and only the shape is being assumed. The battery is scheduled by a simple rule that reacts to today's prices with no forecast, so a real system managed by its installer should beat what's shown here. Payback is arithmetic on the numbers you supplied and includes no tax credit, rebate, financing or degradation."],
     ["Eligibility is only enforced for solar",
      "Under a solar plan the calculator drops the plans that tariff forbids. Everywhere else every plan is priced, including ones you may not qualify for. TOU-ELEC is capped at 10,000 customers, EV plans need a registered EV, and EV-TOU requires a separately metered charger — so its total is not comparable to a whole-home plan."],
     ["One rate revision per period",
@@ -514,61 +546,160 @@ function onProfileChange() {
   renderAddedLoad();
 }
 
+/**
+ * Build the counterfactual series.
+ *
+ * Order is not arbitrary. Load and solar both act on the meter independently,
+ * but the battery reacts to what is left over — so it has to see the net of the
+ * other two, not the original series. Running the battery first would have it
+ * storing surplus that the solar had not yet produced.
+ *
+ * `rankAt` is plan-specific, so this is called once per plan rather than once.
+ */
+function buildScenario(intervals, { profile, profileKWh, solarKWh, battery, strategy, rankAt }) {
+  let series = intervals;
+  if (profile && profileKWh > 0) series = applyLoadProfile(series, profile, profileKWh);
+  if (solarKWh > 0 && solarProfile()) series = applyLoadProfile(series, solarProfile(), solarKWh);
+  if (battery && rankAt) {
+    series = applyBattery(series, { ...BATTERY_SIZES[battery], strategy, rankAt }).intervals;
+  }
+  return series;
+}
+
+/** Whether the imported file already shows solar, which the scenario cannot model on top of. */
+function fileHasSolar() {
+  const { intervals } = activeIntervals();
+  return intervals.some((iv) => (iv.generationKWh ?? 0) > 0);
+}
+
 function renderAddedLoad() {
   if (!$("step-load") || !state.raw.length) return;
+
   const profile = state.profiles.find((p) => p.id === $("profile").value);
-  if (!profile) {
+  const profileKWh = Number($("profile-kwh").value) || 0;
+  const battery = $("battery").value || null;
+  const strategy = $("battery-strategy").value;
+  let solarKWh = Number($("solar-kwh").value) || 0;
+
+  // Once panels exist, self-consumed production never crosses the meter, so the
+  // file no longer records whole-house load — and load is exactly what a
+  // production model has to be subtracted from. Adding more solar on top of a
+  // baseline we cannot see would be guesswork dressed as arithmetic.
+  const hasSolar = fileHasSolar();
+  if ($("solar-kw")) {
+    $("solar-kw").disabled = hasSolar;
+    $("solar-kwh").disabled = hasSolar;
+  }
+  if (hasSolar) solarKWh = 0;
+
+  $("scenario-note").innerHTML = hasSolar
+    ? notice("info", "You already have solar, so “add solar” is switched off",
+        "This file records what crossed the meter, and once panels are on the roof the energy " +
+        "they supply directly to the house never does. There is no way to recover what your " +
+        "whole-house load would have been, so modelling a second array on top of it would be a " +
+        "guess. A battery still works — it acts on the import and export the meter did record.")
+    : "";
+
+  const nothingChanged = !(profile && profileKWh > 0) && solarKWh <= 0 && !battery;
+  if (nothingChanged) {
     $("load-result").innerHTML = "";
     $("load-figure").classList.add("hidden");
     destroy("load");
     return;
   }
 
-  const annual = Number($("profile-kwh").value) || 0;
   const { intervals } = activeIntervals();
   const overlay = currentOverlay();
-  const withLoad = applyLoadProfile(intervals, profile, annual);
 
-  // Rank both ways: adding a load can change which plan wins, which is the
-  // most useful thing this section can tell anyone.
-  const eligible = nemEligiblePlans(nemMode(), state.utility.plans).allowed;
-  const rank = (series) => eligible
-    .filter((p) => !overlay || overlay.doc.plans[p.id])
-    .map((p) => { try { return costPlan({ ...costOptions(series, overlay?.doc), planId: p.id }); } catch { return null; } })
-    .filter(Boolean)
-    .sort((a, b) => a.total - b.total);
+  // Adding solar today means the Net Billing Tariff, whatever the household is
+  // on now — and NBT puts residential customers on EV-TOU-5. So the comparison
+  // is across two different tariffs, and that gets said rather than buried.
+  const scenarioNem = solarKWh > 0 ? "nem3" : nemMode();
+  const newSolar = solarKWh > 0 && nemMode() === "none";
 
-  const before = rank(intervals);
-  const after = rank(withLoad);
-  const current = after.find((r) => r.planId === state.selectedPlanId) ?? after[0];
-  const currentBefore = before.find((r) => r.planId === current.planId);
-  const added = current.total - currentBefore.total;
+  const eligible = nemEligiblePlans(scenarioNem, state.utility.plans).allowed
+    .filter((p) => !overlay || overlay.doc.plans[p.id]);
+  if (!eligible.length) { $("load-result").innerHTML = ""; return; }
 
-  const changed = before[0].planId !== after[0].planId;
-  const body = [];
+  const nemBlock = scenarioNem === "none"
+    ? null
+    : { mode: scenarioNem, vintage: $("nbt-vintage").value, exportTable: state.exportTable };
 
-  if (changed) {
-    body.push(`It also changes the best plan: <strong>${esc(before[0].planName)}</strong> before, ` +
-      `<strong>${esc(after[0].planName)}</strong> after.`);
-  } else {
-    body.push(`Best plan stays <strong>${esc(after[0].planName)}</strong> at ${money(after[0].total)}.`);
+  const calendar = createCalendar(state.utility);
+  const scenarioFor = (plan) => {
+    let rankAt = null;
+    if (battery) {
+      // A tiered plan has no hourly curve to schedule against. Skip the battery
+      // for it rather than dropping the plan — the rest of the scenario is still
+      // meaningful there.
+      try { rankAt = createPriceRanker({ plan, overlay: overlay?.doc, calendar }); } catch { rankAt = null; }
+    }
+    return buildScenario(intervals, { profile, profileKWh, solarKWh, battery, strategy, rankAt });
+  };
+
+  const results = [];
+  for (const plan of eligible) {
+    try {
+      const series = scenarioFor(plan);
+      const after = costPlan({ ...costOptions(series, overlay?.doc), planId: plan.id, nem: nemBlock });
+      const before = costPlan({ ...costOptions(intervals, overlay?.doc), planId: plan.id });
+      results.push({ plan, before, after, series });
+    } catch { /* plan cannot be priced under the scenario */ }
+  }
+  if (!results.length) { $("load-result").innerHTML = ""; return; }
+
+  results.sort((a, b) => a.after.total - b.after.total);
+  const baseline = [...results].sort((a, b) => a.before.total - b.before.total)[0];
+  const best = results[0];
+  const delta = best.after.total - baseline.before.total;
+
+  const bits = [];
+  bits.push(describeScenario(profile, profileKWh, solarKWh, battery, strategy));
+  bits.push(`Best plan today is <strong>${esc(baseline.before.planName)}</strong> at ` +
+    `${money(baseline.before.total)}; afterwards it is <strong>${esc(best.after.planName)}</strong> ` +
+    `at ${money(best.after.total)}.`);
+
+  if (newSolar) {
+    bits.push("<em>Solar moves you onto the Net Billing Tariff, which requires EV-TOU-5 — " +
+      "so this compares two different tariffs, not two versions of the same one.</em>");
+  }
+  if (battery) {
+    bits.push("<em>The battery is scheduled by a simple rule with no weather or price forecast, " +
+      "so a real system managed by its installer should do somewhat better than this.</em>");
   }
 
-  // On a tiered plan the hour of use is irrelevant — only the total matters.
-  // Saying so beats letting someone conclude that timing never matters, when
-  // the section directly above promises that it does.
-  if (current.pricingModel === "tiered") {
-    body.push(`<em>${esc(current.planName.split("—")[0].trim())} prices on total usage, not time of day, ` +
-      `so this figure is the same whenever you charge. Pick a time-of-use plan in the table above ` +
-      `to see what shifting the load is worth.</em>`);
+  const cost = Number($("scenario-cost").value);
+  if (cost > 0) {
+    const period = describePeriod(intervals, state.utility);
+    const perYear = (-delta) * (365 / Math.max(period.dayCount, 1));
+    bits.push(perYear > 0
+      ? `At ${money(perYear)} saved a year, ${money(cost)} pays back in ` +
+        `<strong>${(cost / perYear).toFixed(1)} years</strong> before any tax credit.`
+      : `This scenario does not lower the bill, so there is no payback to compute.`);
   }
 
-  $("load-result").innerHTML = notice(changed ? "warn" : "info",
-    `${esc(profile.name)} adds ${money(added)} on ${esc(current.planName)}`,
-    body.join(" "));
+  $("load-result").innerHTML = notice(delta < 0 ? "good" : "warn",
+    delta < 0
+      ? `Your bill drops ${money(-delta)} over this period`
+      : `Your bill rises ${money(delta)} over this period`,
+    bits.join(" "));
 
   $("load-figure").classList.remove("hidden");
-  drawLoadChart(intervals, withLoad);
+  drawLoadChart(intervals, best.series);
+}
+
+function describeScenario(profile, profileKWh, solarKWh, battery, strategy) {
+  const parts = [];
+  if (profile && profileKWh > 0) parts.push(`${esc(profile.name.toLowerCase())} at ${profileKWh.toLocaleString()} kWh/yr`);
+  if (solarKWh > 0) parts.push(`${solarKWh.toLocaleString()} kWh/yr of solar`);
+  if (battery) {
+    parts.push(`a ${BATTERY_SIZES[battery].capacityKWh} kWh battery ` +
+      (strategy === "grid" ? "charged off-peak" : "storing your own solar"));
+  }
+  const list = parts.length > 1
+    ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`
+    : parts[0];
+  return `Modelling ${list}.`;
 }
 
 // --- charts ----------------------------------------------------------------

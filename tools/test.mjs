@@ -192,6 +192,27 @@ const nightCost = costPlan({ utility, planId: "tou-dr1", intervals: applyLoadPro
 const eveCost = costPlan({ utility, planId: "tou-dr1", intervals: applyLoadProfile(day, evEvening, 3650), climateZone: "coastal" });
 check("profile: same kWh costs more in the evening", eveCost.total > nightCost.total, true);
 
+// Every existing load profile, pinned to the cent-fraction. applyLoadProfile
+// grew a clamp and an import/export split so solar could ride the same path;
+// these totals were recorded before that change and must not move by so much as
+// a rounding bit. A load profile is always positive, so the new branch is dead
+// code for all six — this is the check that proves it stayed dead.
+const PINNED = {
+  "ev-evening": 10.1856032,
+  "ev-midday": 8.7877432,
+  "ev-overnight": 8.7877432,
+  "heat-pump": 9.698182654,
+  "pool-pump": 9.090282584,
+  "water-heater": 9.722516409,
+};
+for (const [id, want] of Object.entries(PINNED)) {
+  const prof = JSON.parse(readFileSync(`profiles/${id}.json`, "utf8"));
+  const series = applyLoadProfile(day, prof, 3650);
+  const got = costPlan({ utility, planId: "tou-dr1", intervals: series, climateZone: "coastal" });
+  check(`profile: ${id} costs exactly what it did before the solar change`, got.total, want, 1e-8);
+  check(`profile: ${id} exports nothing`, series.every((iv) => iv.generationKWh === 0), true);
+}
+
 // --- solar: NEM 2.0 --------------------------------------------------------
 // Exports net against imports at full retail, but non-bypassable charges are
 // billed on import and survive the netting. A house that exports exactly what
@@ -420,6 +441,131 @@ check("nem2: with no exports, NBC base is the whole import",
 const plain = costPlan({ utility, planId: "tou-dr1", intervals: solarDay(0.2, 0), climateZone: "coastal" });
 check("nem2: no exports gives the same total as no solar at all",
   noSolar.total, plain.total, 1e-9);
+
+// --- solar as a generation profile -----------------------------------------
+// Solar is applyLoadProfile with the sign flipped. The engine gains no tariff
+// logic; what has to hold is that the transform splits a signed net into the
+// meter's two registers correctly.
+
+import { applyBattery, createPriceRanker, BATTERY_SIZES } from "../src/scenario.js";
+
+const solarProfile = JSON.parse(readFileSync("profiles/solar-rooftop.json", "utf8"));
+check("solar profile: 12 months x 24 hours",
+  solarProfile.monthly_shape.length === 12 && solarProfile.monthly_shape.every((r) => r.length === 24), true);
+check("solar profile: normalizes to 1 across the whole table",
+  solarProfile.monthly_shape.flat().reduce((a, b) => a + b, 0), 1, 1e-5);
+check("solar profile: declares itself generation", solarProfile.kind, "generation");
+check("solar profile: nothing produced at midnight in any month",
+  solarProfile.monthly_shape.every((r) => r[0] === 0 && r[23] === 0), true);
+// Peak production sits an hour later on the clock in summer than in winter,
+// because the clock moves and the sun does not. Getting this backwards would
+// walk production out of the on-peak window.
+const peakHour = (m) => solarProfile.monthly_shape[m].indexOf(Math.max(...solarProfile.monthly_shape[m]));
+check("solar profile: DST shifts the peak an hour later in summer",
+  peakHour(6) - peakHour(11), 1);
+
+const julyDay = Array.from({ length: 96 }, (_, i) => ({
+  start: new Date(2026, 6, 15, Math.floor(i / 4), (i % 4) * 15),
+  durationSeconds: 900, kWh: 0.1, generationKWh: 0, netKWh: 0.1,
+}));
+const withSolar = applyLoadProfile(julyDay, solarProfile, 9300);
+check("solar: import never goes negative", withSolar.every((iv) => iv.kWh >= 0), true);
+check("solar: midday exports", withSolar.some((iv) => iv.generationKWh > 0), true);
+check("solar: night is untouched",
+  withSolar[0].kWh, 0.1, 1e-12);
+// import - export must still equal the signed net, or the two registers have
+// drifted apart from the arithmetic that produced them.
+check("solar: registers reconcile to the signed net",
+  withSolar.every((iv) => Math.abs((iv.kWh - iv.generationKWh) - iv.netKWh) < 1e-12), true);
+const solarCost = costPlan({ utility, planId: "ev-tou-5", intervals: withSolar, climateZone: "coastal",
+  nem: { mode: "nem3", vintage: "NBT26", exportTable } });
+const noSolarCost = costPlan({ utility, planId: "ev-tou-5", intervals: julyDay, climateZone: "coastal" });
+check("solar: lowers the bill", solarCost.total < noSolarCost.total, true);
+
+// A monthly shape must route by month. A December interval reading January's
+// row would be invisible in any total-based check.
+const decDay = julyDay.map((iv) => ({ ...iv, start: new Date(2026, 11, 15, iv.start.getHours(), iv.start.getMinutes()) }));
+const decSolar = applyLoadProfile(decDay, solarProfile, 9300);
+const julyProduced = withSolar.reduce((s, iv) => s + (iv.kWh - iv.netKWh), 0);
+const decProduced = decSolar.reduce((s, iv) => s + (iv.kWh - iv.netKWh), 0);
+check("solar: December produces less than July", decProduced < julyProduced, true);
+
+// --- battery ----------------------------------------------------------------
+const evtou5 = utility.plans.find((p) => p.id === "ev-tou-5");
+const rankAt = createPriceRanker({ plan: evtou5, calendar: cal });
+check("price ranker: the most expensive hour ranks 1", (() => {
+  const ranks = Array.from({ length: 24 }, (_, h) => rankAt(new Date(2026, 6, 15, h)).rank);
+  return Math.max(...ranks) === 1 && Math.min(...ranks) === 0;
+})(), true);
+// The windows must come from the plan, not from a constant. TOU-DR1 and
+// EV-TOU-5 price different hours, so their top-ranked hours must differ
+// somewhere or the derivation is not reading the plan at all.
+const rankDr1 = createPriceRanker({ plan: utility.plans.find((p) => p.id === "tou-dr1"), calendar: cal });
+check("price ranker: reads each plan's own curve", (() => {
+  const a = Array.from({ length: 24 }, (_, h) => rankAt(new Date(2026, 0, 15, h)).rank);
+  const b = Array.from({ length: 24 }, (_, h) => rankDr1(new Date(2026, 0, 15, h)).rank);
+  return a.some((v, i) => Math.abs(v - b[i]) > 1e-9);
+})(), true);
+
+const noBattery = applyBattery(julyDay, { capacityKWh: 0, powerKW: 0, rankAt });
+check("battery: zero capacity is exactly a no-op", noBattery.intervals, julyDay);
+
+// A battery has to be tested against a realistic week, not a flat day. Its
+// whole job is to move energy from midday into the evening peak, so a fixture
+// with no evening peak and only one day of carry-over measures nothing. Load is
+// evening-weighted and the system is sized to the house, which is the case a
+// buyer is actually in.
+const eveningShape = (h) => (h >= 17 && h < 22 ? 2.2 : h >= 6 && h < 9 ? 1.2 : 0.55);
+const solarWeek = Array.from({ length: 96 * 7 }, (_, i) => {
+  const start = new Date(2026, 6, 13, 0, i * 15);
+  const kWh = eveningShape(start.getHours()) / 4;
+  return { start, durationSeconds: 900, kWh, generationKWh: 0, netKWh: kWh };
+});
+const weekWithSolar = applyLoadProfile(solarWeek, solarProfile, 8500);
+const nbtOpts = { mode: "nem3", vintage: "NBT26", exportTable };
+const weekSolarCost = costPlan({ utility, planId: "ev-tou-5", intervals: weekWithSolar,
+  climateZone: "coastal", nem: nbtOpts });
+
+const solarPlusBattery = applyBattery(weekWithSolar, { ...BATTERY_SIZES.small, strategy: "solar", rankAt });
+check("battery: never charges from the grid on the solar strategy",
+  solarPlusBattery.chargedFromGridKWh, 0);
+check("battery: discharges less than it charges (round-trip loss)",
+  solarPlusBattery.dischargedKWh < solarPlusBattery.chargedKWh, true);
+check("battery: stores surplus that would otherwise export",
+  solarPlusBattery.intervals.reduce((s, iv) => s + iv.generationKWh, 0) <
+    weekWithSolar.reduce((s, iv) => s + iv.generationKWh, 0), true);
+const sbCost = costPlan({ utility, planId: "ev-tou-5", intervals: solarPlusBattery.intervals,
+  climateZone: "coastal", nem: nbtOpts });
+check("battery: a battery on top of solar lowers the bill further", sbCost.total < weekSolarCost.total, true);
+
+// Grid arbitrage on a flat-load house with no solar. The two numbers must move
+// in OPPOSITE directions: more kWh bought, fewer dollars spent. If total import
+// fell, the battery would be manufacturing energy; if cost rose, it would be
+// charging at the wrong end of the day.
+const week = Array.from({ length: 96 * 7 }, (_, i) => ({
+  start: new Date(2026, 6, 13, 0, i * 15),
+  durationSeconds: 900, kWh: 0.25, generationKWh: 0, netKWh: 0.25,
+}));
+const arb = applyBattery(week, { ...BATTERY_SIZES.large, strategy: "grid", rankAt });
+const importBefore = week.reduce((s, iv) => s + iv.kWh, 0);
+const importAfter = arb.intervals.reduce((s, iv) => s + iv.kWh, 0);
+const costBefore = costPlan({ utility, planId: "ev-tou-5", intervals: week, climateZone: "coastal" });
+const costAfter = costPlan({ utility, planId: "ev-tou-5", intervals: arb.intervals, climateZone: "coastal" });
+check("battery: grid arbitrage buys more kWh", importAfter > importBefore, true);
+check("battery: grid arbitrage still costs less", costAfter.total < costBefore.total, true);
+check("battery: grid arbitrage never exports",
+  arb.intervals.every((iv) => iv.generationKWh === 0), true);
+
+// State of charge is internal, so assert it through what escapes: discharge can
+// never exceed what the reserve floor leaves reachable, nor the power limit.
+check("battery: respects the power limit per interval",
+  arb.intervals.every((iv, i) => Math.abs(iv.kWh - week[i].kWh) <= BATTERY_SIZES.large.powerKW * 0.25 + 1e-9), true);
+check("battery: a tiered plan is refused rather than mis-scheduled", (() => {
+  try {
+    createPriceRanker({ plan: utility.plans.find((p) => p.id === "dr"), calendar: cal });
+    return false;
+  } catch { return true; }
+})(), true);
 
 // --- error handling --------------------------------------------------------
 check("unknown plan throws", (() => {

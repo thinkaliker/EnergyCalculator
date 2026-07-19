@@ -143,20 +143,71 @@ export function monthlyTotals(intervals) {
 }
 
 /**
- * Apply a load profile to a series: an hourly *shape* scaled to an annual kWh,
+ * Apply a profile to a series: a normalized *shape* scaled to an annual kWh,
  * not a flat monthly total. Charging an EV at 1am and at 6pm produce opposite
  * conclusions from the same kWh, which is the entire point of this feature.
+ *
+ * Handles both directions. A load profile adds consumption; a `generation`
+ * profile subtracts it, which is all rooftop solar is from the meter's point of
+ * view. Separating the shape from the annual total is what makes solar tractable
+ * here: the shape is generic to the region, while the magnitude depends on the
+ * roof and belongs to whoever is looking at a quote for it.
+ *
+ * Two shape formats:
+ *   hourly_shape  — 24 values, the same every day of the year.
+ *   monthly_shape — 12 x 24, indexed [month-1][hour].
+ *
+ * Solar needs the second. December output is around half of June's and the sun
+ * is not up at 6am in winter, so a single 24-value shape would put production in
+ * hours that have none. That misallocation is worse than it sounds under NBT,
+ * where the export credit for a kWh varies by an order of magnitude across the
+ * year — moving production between months moves real money.
  */
 export function applyLoadProfile(intervals, profile, annualKWh) {
-  const perHourPerDay = profile.hourly_shape.map((f) => (f * annualKWh) / 365);
+  const monthly = profile.monthly_shape;
+  if (!monthly && !profile.hourly_shape) {
+    throw new Error(`Profile "${profile.id}" has neither hourly_shape nor monthly_shape.`);
+  }
+
+  // A monthly shape is normalized across the whole 12x24 table, so its values
+  // are already a fraction of the *annual* total and must not be divided by 365
+  // the way a daily shape is. Instead each month's slice is spread over that
+  // month's days, which is also what makes short months come out right.
+  const sign = profile.kind === "generation" ? -1 : 1;
   const byDay = groupByDay(intervals);
+
+  const perDay = (date, hour) => {
+    if (!monthly) return (profile.hourly_shape[hour] * annualKWh) / 365;
+    const month = date.getMonth();
+    // Divide by the days in the *calendar* month, not the days present in the
+    // data. Using the data's day count would hand a household with three days
+    // of July the whole month's production, which is how a partial import turns
+    // into a wildly optimistic solar quote.
+    return (monthly[month][hour] * annualKWh) / daysInCalendarMonth(date.getFullYear(), month);
+  };
 
   return intervals.map((iv) => {
     const hour = iv.start.getHours();
     const slotsThisHour = byDay
       .get(localDateKey(iv.start))
       .filter((x) => x.start.getHours() === hour).length || 1;
-    const added = perHourPerDay[hour] / slotsThisHour;
-    return { ...iv, kWh: iv.kWh + added, netKWh: iv.netKWh + added };
+    const delta = (sign * perDay(iv.start, hour)) / slotsThisHour;
+    const net = iv.kWh + delta;
+
+    // The meter has two registers, not one signed one. Negative net import is
+    // an export, and cost.js reads `kWh` as grid import — leaving it negative
+    // would run it through the delivery calculation as a discount instead of
+    // through the export credit. Split it here, where the sign is still known.
+    return {
+      ...iv,
+      kWh: Math.max(0, net),
+      generationKWh: (iv.generationKWh ?? 0) + Math.max(0, -net),
+      netKWh: iv.netKWh + delta,
+    };
   });
+}
+
+/** Days in a calendar month, February included. */
+function daysInCalendarMonth(year, month) {
+  return new Date(year, month + 1, 0).getDate();
 }

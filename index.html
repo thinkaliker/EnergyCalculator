@@ -203,14 +203,16 @@
 
   <!-- Step 4 ------------------------------------------------------------ -->
   <section class="step hidden" id="step-load">
-    <h2><span class="num">4</span> What if I added a big load?</h2>
+    <h2><span class="num">4</span> What if something changed?</h2>
     <p class="lede small">
-      Added as an hourly <em>shape</em>, not a monthly total. Charging an EV at
-      1am and at 6pm cost very different amounts for identical kWh.
+      Everything here is applied as an hourly <em>shape</em>, not a monthly
+      total. Charging an EV at 1am and at 6pm cost very different amounts for
+      identical kWh, and the same is true in reverse for a solar panel.
     </p>
+
     <div class="controls grid">
       <label>
-        Load
+        Add a load
         <select id="profile"><option value="">None</option></select>
       </label>
       <label>
@@ -219,6 +221,41 @@
         <small id="profile-note"></small>
       </label>
     </div>
+
+    <div class="controls grid">
+      <label>
+        Add solar
+        <input type="number" id="solar-kw" min="0" max="30" step="0.5" value="0">
+        <small id="solar-kw-note">System size in kW. 0 for none.</small>
+      </label>
+      <label>
+        Solar output
+        <input type="number" id="solar-kwh" min="0" step="100" value="0">
+        <small>Annual kWh. Estimated from size — overwrite it with a real quote.</small>
+      </label>
+      <label>
+        Add a battery
+        <select id="battery">
+          <option value="">None</option>
+          <option value="small">Small — about 13.5 kWh</option>
+          <option value="large">Large — about 27 kWh</option>
+        </select>
+      </label>
+      <label id="battery-strategy-wrap" class="hidden">
+        Battery is for
+        <select id="battery-strategy">
+          <option value="solar">Storing my own solar</option>
+          <option value="grid">Buying cheap, using at peak</option>
+        </select>
+      </label>
+      <label>
+        Installed cost
+        <input type="number" id="scenario-cost" min="0" step="500" placeholder="optional">
+        <small>Fill this in for a simple payback. Before any tax credit.</small>
+      </label>
+    </div>
+
+    <div id="scenario-note"></div>
     <div id="load-result"></div>
     <figure class="hidden" id="load-figure">
       <figcaption>Your average day, before and after</figcaption>

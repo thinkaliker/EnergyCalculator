@@ -526,6 +526,71 @@ function validateGeneration(file, doc, planModels, seasons) {
   }
 }
 
+/**
+ * Load and generation profiles.
+ *
+ * A profile carries a normalized *shape* and a separate annual kWh, so what
+ * matters here is that the shape is a shape: it has the right dimensions and it
+ * sums to 1. A shape summing to anything else silently rescales the scenario —
+ * a table summing to 2 doubles a solar system's output with nothing on screen
+ * to suggest it.
+ */
+function validateProfile(file, doc) {
+  if (!doc.id) err(file, "missing id");
+  if (!doc.name) err(file, "missing name");
+
+  const hasHourly = Array.isArray(doc.hourly_shape);
+  const hasMonthly = Array.isArray(doc.monthly_shape);
+  if (hasHourly === hasMonthly) {
+    err(file, "must have exactly one of hourly_shape or monthly_shape");
+    return;
+  }
+
+  if (doc.kind !== undefined && doc.kind !== "load" && doc.kind !== "generation") {
+    err(file, `kind must be "load" or "generation", got ${JSON.stringify(doc.kind)}`);
+  }
+
+  let values;
+  if (hasHourly) {
+    if (doc.hourly_shape.length !== 24) {
+      err(file, `hourly_shape must have 24 values, got ${doc.hourly_shape.length}`);
+      return;
+    }
+    values = doc.hourly_shape;
+  } else {
+    if (doc.monthly_shape.length !== 12) {
+      err(file, `monthly_shape must have 12 months, got ${doc.monthly_shape.length}`);
+      return;
+    }
+    const badRow = doc.monthly_shape.findIndex((r) => !Array.isArray(r) || r.length !== 24);
+    if (badRow !== -1) {
+      err(file, `monthly_shape[${badRow}] must have 24 hourly values`);
+      return;
+    }
+    values = doc.monthly_shape.flat();
+  }
+
+  if (values.some((v) => typeof v !== "number" || !Number.isFinite(v))) {
+    err(file, "shape contains a non-numeric value");
+    return;
+  }
+  // Sign lives in `kind`, not in the numbers. A negative entry in a shape means
+  // someone encoded solar by flipping signs instead of declaring it, which would
+  // then get flipped a second time when the profile is applied.
+  if (values.some((v) => v < 0)) {
+    err(file, "shape values must be non-negative — use kind: \"generation\" to subtract");
+  }
+
+  const sum = values.reduce((a, b) => a + b, 0);
+  if (Math.abs(sum - 1) > 1e-4) {
+    err(file, `shape must normalize to 1.0, sums to ${sum.toFixed(6)}`);
+  }
+
+  if (doc.annual_kwh !== undefined && !(doc.annual_kwh > 0)) {
+    err(file, "annual_kwh must be positive when present");
+  }
+}
+
 // ---- main ----
 
 const dir = process.argv[2] ?? "rates";
@@ -553,16 +618,25 @@ for (const f of files) {
 }
 
 const TYPES = ["utility", "generation", "export_prices", "cities"];
+// Profiles live in their own directory and carry a shape rather than a `type`.
+// Recognising them by shape means `validate.mjs profiles` works without a mode
+// flag, and a profile accidentally dropped into rates/ is still checked.
+const isProfile = (d) => Array.isArray(d.hourly_shape) || Array.isArray(d.monthly_shape);
+
+const profiles = [...docs].filter(([, d]) => isProfile(d));
 const utilities = [...docs].filter(([, d]) => d.type === "utility");
 const generations = [...docs].filter(([, d]) => d.type === "generation");
 const exportPrices = [...docs].filter(([, d]) => d.type === "export_prices");
 const cityFiles = [...docs].filter(([, d]) => d.type === "cities");
 
 for (const [f, d] of docs) {
+  if (isProfile(d)) continue;
   if (!TYPES.includes(d.type)) {
     err(f, `type must be one of ${TYPES.join(", ")}, got ${JSON.stringify(d.type)}`);
   }
 }
+
+for (const [f, d] of profiles) validateProfile(f, d);
 
 let planModels = {};
 let seasonNames = [];

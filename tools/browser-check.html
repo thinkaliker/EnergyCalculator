@@ -195,10 +195,11 @@ async function run() {
     profile.dispatchEvent(new win.Event("change"));
     await settle(600);
     const evening = doc.getElementById("load-result").textContent;
-    check("added-load section reports a cost", /adds \$\d/.test(night), night.slice(0, 80));
+    check("added-load section reports a cost", /bill rises \$\d/.test(night), night.slice(0, 80));
     check("overnight and evening EV differ", night !== evening);
-    const nightAmt = parseFloat(night.match(/adds \$([\d.]+)/)?.[1] ?? 0);
-    const eveAmt = parseFloat(evening.match(/adds \$([\d.]+)/)?.[1] ?? 0);
+    const risesBy = (t) => parseFloat(t.match(/bill rises \$([\d,.]+)/)?.[1].replace(/,/g, "") ?? 0);
+    const nightAmt = risesBy(night);
+    const eveAmt = risesBy(evening);
     check("evening charging costs more than overnight", eveAmt > nightAmt, `${nightAmt} vs ${eveAmt}`);
   }
 
@@ -338,7 +339,7 @@ async function run() {
   const provRows = () => [...doc.querySelectorAll("#provider-table tbody tr")];
   await waitFor(() => provRows().length > 1);
   check("provider table lists bundled SDG&E plus every SDCP product",
-    provRows().length, 4);
+    provRows().length === 4, `${provRows().length} rows`);
   check("provider table is sorted cheapest first", (() => {
     const totals = provRows().map((r) => Number(r.cells[5].textContent.replace(/[^0-9.]/g, "")));
     return totals.every((t, i) => i === 0 || t >= totals[i - 1]);
@@ -356,6 +357,60 @@ async function run() {
   setSelect(win, doc, "city", "Coronado");
   await waitFor(() => doc.getElementById("provider-table-wrap").classList.contains("hidden"));
   check("provider table hides when only SDG&E serves the city", true);
+
+  // --- solar and battery scenarios -----------------------------------------
+  setSelect(win, doc, "profile", "");
+  await settle(400);
+  const result = () => doc.getElementById("load-result").textContent;
+  const dropsBy = (t) => parseFloat(t.match(/bill drops \$([\d,.]+)/)?.[1].replace(/,/g, "") ?? 0);
+
+  const solarKw = doc.getElementById("solar-kw");
+  solarKw.value = "6";
+  solarKw.dispatchEvent(new win.Event("input"));
+  await waitFor(() => /bill drops/.test(result()));
+  const solarSaving = dropsBy(result());
+  check("adding solar lowers the bill", solarSaving > 0, result().slice(0, 90));
+  check("system size seeds an annual output", Number(doc.getElementById("solar-kwh").value) > 0,
+    doc.getElementById("solar-kwh").value);
+  check("adding solar names the tariff change", /EV-TOU-5/.test(result()), result().slice(0, 140));
+
+  setSelect(win, doc, "battery", "small");
+  await waitFor(() => dropsBy(result()) !== solarSaving);
+  const batterySaving = dropsBy(result());
+  check("a battery on top of solar saves more", batterySaving > solarSaving,
+    `${solarSaving} -> ${batterySaving}`);
+  check("battery admits it is not an optimiser", /forecast/.test(result()), result().slice(0, 160));
+  check("battery strategy picker appears with a battery",
+    !doc.getElementById("battery-strategy-wrap").classList.contains("hidden"));
+
+  // Payback must not appear until a cost is supplied — a payback figure derived
+  // from a number nobody entered is the worst thing this section could print.
+  check("no payback before a cost is entered", !/pays back/.test(result()));
+  const costInput = doc.getElementById("scenario-cost");
+  costInput.value = "20000";
+  costInput.dispatchEvent(new win.Event("input"));
+  await waitFor(() => /pays back/.test(result()));
+  check("payback appears once a cost is entered", /pays back in [\d.]+ years/.test(result()),
+    result().slice(-120));
+
+  costInput.value = "";
+  costInput.dispatchEvent(new win.Event("input"));
+  setSelect(win, doc, "battery", "");
+  solarKw.value = "0";
+  solarKw.dispatchEvent(new win.Event("input"));
+  await waitFor(() => result() === "");
+  check("clearing the scenario clears the result", result() === "", result().slice(0, 60));
+
+  // Grid arbitrage with no solar at all: the battery has to earn its keep by
+  // shifting when energy is bought, not by storing anything generated on site.
+  setSelect(win, doc, "battery", "large");
+  setSelect(win, doc, "battery-strategy", "grid");
+  await waitFor(() => /bill (drops|rises)/.test(result()));
+  check("a battery alone still changes the bill", /bill (drops|rises)/.test(result()),
+    result().slice(0, 90));
+
+  setSelect(win, doc, "battery", "");
+  await settle(300);
 
   check("no uncaught errors during the run", errors.length === 0, errors.join(" | "));
 

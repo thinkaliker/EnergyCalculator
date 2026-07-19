@@ -2,6 +2,12 @@
   "generated": "2026-07-19",
   "profiles": [
     {
+      "id": "solar-rooftop",
+      "name": "Rooftop solar",
+      "kind": "generation",
+      "path": "solar-rooftop.json"
+    },
+    {
       "id": "ev-overnight",
       "name": "EV charging, overnight",
       "path": "ev-overnight.json"
