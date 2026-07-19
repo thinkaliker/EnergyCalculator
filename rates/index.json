@@ -1,5 +1,5 @@
 {
-  "generated": "2026-07-18",
+  "generated": "2026-07-19",
   "files": [
     {
       "provider": "sdge",
@@ -69,6 +69,18 @@
       "effective_date": "2026-05-01",
       "path": "cca-sdcp-2022v-poweron.json",
       "product": "PowerOn"
+    },
+    {
+      "provider": "sdge",
+      "type": "export_prices",
+      "effective_date": "2025-01-01",
+      "path": "nbt-export.json"
+    },
+    {
+      "provider": "sdge",
+      "type": "cities",
+      "effective_date": "2026-01-01",
+      "path": "cities.json"
     }
   ]
 }

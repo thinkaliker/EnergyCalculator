@@ -14,6 +14,18 @@
     "derived": "Clean Impact plus the published $0.00750/kWh 'Green Impact Premium - 100% Renewable' adder. Computed, not transcribed.",
     "no_rate_relief_credit": "The rate relief credit is not applied here — see rate_relief_scope_UNVERIFIED in cca-cea-clean-impact.json."
   },
+  "nbt_generation_adder_per_kwh": 0.01,
+  "nbt_generation_adder_source": "CEA Solar Impact (Solar Billing Plan): exports are credited at SDG&E's export price plus an additional $0.01/kWh. https://thecleanenergyalliance.org/solar-impact/",
+  "nbt_generation_adder_notes": {
+    "base_is_sdges": "CEA matches SDG&E's export credit pricing and pays a premium on top, so the base comes from rates/nbt-export.json.",
+    "product_naming": "CEA routes solar customers to 'Solar Impact' (NEM 3.0) or 'Personal Impact' (NEM 2.0). Neither has its own generation price table — CEA's adopted rate schedule lists them only under net surplus compensation — so the generation prices in this file still apply.",
+    "net_surplus": "CEA publishes a flat NSC of $0.06/kWh for Personal Impact / Solar Impact. Recorded here but not applied: SDG&E's and SDCP's equivalents are wholesale-indexed and vary, so paying out for one provider only would bias the comparison. Surplus is reported in kWh instead.",
+    "net_surplus_compensation_per_kwh": 0.06
+  },
+
+  "service_area_cities": ["Carlsbad","Del Mar","Escondido","Oceanside","San Marcos","Solana Beach","Vista"],
+  "service_area_cities_source": "SDG&E Active CCAs page, cross-checked against the rate schedule's own service_area text. Names match rates/cities.json exactly so the two can be validated against each other.",
+
   "plans": {
     "dr": {
       "summer": [

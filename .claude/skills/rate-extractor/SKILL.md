@@ -72,6 +72,16 @@ Windows that wrap midnight split into two blocks: `21→24` and `0→6`.
 
 Watch for **super-off-peak**, which often applies only in one season or only on weekends. Missing it makes a plan look worse than it is.
 
+## Solar
+
+Two fields exist only for the solar paths, and both are easy to miss when extracting a schedule.
+
+**`nonbypassable_charges`** on each utility plan. Read from the *UDC Rates* table on the schedule's own sheet, not from the headline rate table. PPP, ND and CTC sit inside UDC Total; DWR-BC and WF-NBC are added on top. These do not carry between schedules — check each one.
+
+**`nbt_generation_adder_per_kwh`** on each CCA overlay. Neither CCA publishes an export price curve; both use SDG&E's and add a flat per-kWh adder, so this is the only export field a CCA extraction needs.
+
+Do not extract export prices by hand. `scripts/fetch-nbt-export.mjs` regenerates `rates/nbt-export.json` from SDG&E's published MIDAS upload.
+
 ## Validate
 
 ```bash

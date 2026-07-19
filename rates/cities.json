@@ -1,0 +1,52 @@
+{
+  "type": "cities",
+  "provider": "sdge",
+  "effective_date": "2026-01-01",
+  "source_url": "https://www.sdge.com/customer-choice/community-choice-aggregation/active-ccas",
+  "verified_against": "CCA membership from SDG&E's Active CCAs page. Franchise fee percentages from the Electric Preliminary Statement, General Information section H.1 (EGENERAL, tarfKey 1), Advice Ltr. 3326-E effective Jan 1 2019.",
+
+  "_purpose": "City drives two things the bill depends on: which CCA can serve you (and, for SDCP, which of its two rate schedules), and the franchise fee percentage.",
+
+  "franchise_fee": {
+    "base_pct": 1.1,
+    "_source": "Preliminary Statement H.1: 'The Franchise Fee Differential will be based on the difference between the franchise fee percentage and 1.1%.' So 1.1% is the franchise fee already built into every customer's rates, everywhere in the territory.",
+    "differentials_pct": {
+      "San Diego": 5.78
+    },
+    "_differential_source": "Preliminary Statement H.1: 'The following is the applicable Franchise Fee Differential: City of San Diego 5.78%.' San Diego is the only political subdivision listed, so every other city pays the 1.1% base and no differential.",
+    "_total_is_base_plus_differential": "A city's total franchise fee percentage is base_pct + its differential: 1.1% everywhere, 6.88% in the City of San Diego. Both figures are corroborated by real bills — a City of San Diego SDCP account was charged 6.88% and a Clean Energy Alliance account in another city was charged 1.10%. Before this was sourced, the two looked like unrelated constants.",
+    "_where_each_applies": "The differential is charged on SDG&E's own billing. The equivalent surcharge is charged to CCA customers on SDG&E's imputed generation, at the city's TOTAL percentage — which is why a City of San Diego CCA customer sees 6.88% there."
+  },
+
+  "_cca_note": "Membership is where the city is enrolled by default. A customer can always opt out to SDG&E bundled service, so this narrows the choices rather than fixing them.",
+
+  "cities": [
+    { "name": "Carlsbad",        "cca": "cea" },
+    { "name": "Chula Vista",     "cca": "sdcp", "cca_rate_group": "2021v" },
+    { "name": "Coronado",        "cca": null },
+    { "name": "Del Mar",         "cca": "cea" },
+    { "name": "El Cajon",        "cca": null },
+    { "name": "Encinitas",       "cca": "sdcp", "cca_rate_group": "2021v" },
+    { "name": "Escondido",       "cca": "cea" },
+    { "name": "Imperial Beach",  "cca": "sdcp", "cca_rate_group": "2021v" },
+    { "name": "La Mesa",         "cca": "sdcp", "cca_rate_group": "2021v" },
+    { "name": "Lemon Grove",     "cca": null },
+    { "name": "National City",   "cca": "sdcp", "cca_rate_group": "2022v" },
+    { "name": "Oceanside",       "cca": "cea" },
+    { "name": "Poway",           "cca": null },
+    { "name": "San Diego",       "cca": "sdcp", "cca_rate_group": "2021v" },
+    { "name": "San Marcos",      "cca": "cea" },
+    { "name": "Santee",          "cca": null },
+    { "name": "Solana Beach",    "cca": "cea" },
+    { "name": "Vista",           "cca": "cea" },
+    { "name": "Unincorporated San Diego County", "cca": "sdcp", "cca_rate_group": "2022v" },
+    { "name": "Somewhere else in SDG&E territory", "cca": null,
+      "_note": "SDG&E also serves part of southern Orange County. No CCA, and the 1.1% base franchise fee." }
+  ],
+
+  "_not_modeled": {
+    "opt_out": "Customers in a CCA city who opted out to SDG&E bundled service. Selecting a city does not force a provider — SDG&E stays available everywhere.",
+    "annexation": "Membership changes as cities join or leave a CCA. Re-check this file when rates are updated.",
+    "orange_county": "SDG&E's southern Orange County territory is folded into the catch-all entry rather than enumerated, since no CCA serves it and the franchise fee is the base rate."
+  }
+}

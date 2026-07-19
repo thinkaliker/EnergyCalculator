@@ -15,6 +15,18 @@
     "dr_is_tiered": "SDG&E's DR is tiered but SDCP publishes a single flat generation price for it, so both tiers carry the same number. The tier split is entirely in SDG&E delivery.",
     "tou_elec_own_rate": "Unlike CEA, SDCP prices TOU-ELEC separately from the EV-TOU family."
   },
+  "nbt_generation_adder_per_kwh": 0.0075,
+  "nbt_generation_adder_source": "SDCP Net Billing Tariff, Section D 'SDCP Generation Adders', Table 1, Residential Non-CARE. Board-approved 10/26/2023, resolution R2025-15.",
+  "nbt_generation_adder_notes": {
+    "base_is_sdges": "SDCP does not publish its own export price curve. Its tariff states it 'utilizes SDG&E's Generation EEC', so the base comes from rates/nbt-export.json and this adder is paid on top of it.",
+    "eligibility": "Requires an NBT effective date between 2023-04-15 and 2026-12-31, and is fixed for the first six years from that date. Customers transferring in after a 20-year NEM legacy period are NOT eligible. Not enforced — the calculator has no interconnection date to check against.",
+    "care_rate_UNVERIFIED": "Table 1 prints $0.11/kWh for Residential CARE, 15x the non-CARE figure and larger than most retail rates. Almost certainly a typo for $0.011. Not modelled; CARE is not modelled at all.",
+    "net_surplus": "NSC at annual true-up is set from CAISO OASIS prices and varies. Not modelled — surplus is reported in kWh instead."
+  },
+
+  "service_area_cities": ["National City","Unincorporated San Diego County"],
+  "service_area_cities_source": "SDG&E Active CCAs page, cross-checked against the rate schedule's own service_area text. Names match rates/cities.json exactly so the two can be validated against each other.",
+
   "plans": {
     "dr": {
       "summer": [

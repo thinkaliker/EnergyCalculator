@@ -3,6 +3,7 @@
 
 import { parseIntervals } from "./src/parse.js";
 import { costPlan } from "./src/cost.js";
+import { nemEligiblePlans } from "./src/nem.js";
 import {
   selectPeriod, trimIncompleteDays, describePeriod,
   hourlyShape, monthlyTotals, applyLoadProfile,
@@ -15,6 +16,8 @@ const charts = {};
 const state = {
   utility: null,
   overlays: [],      // { file, doc }
+  exportTable: null, // NEM 3.0 export prices; absent means NEM 3.0 is unavailable
+  cities: null,      // city -> CCA membership and franchise fee
   profiles: [],
   raw: [],           // every interval in the file
   selectedPlanId: null,
@@ -29,10 +32,14 @@ async function init() {
   state.overlays = index.files
     .map((f, i) => ({ file: f.path, doc: docs[i] }))
     .filter((o) => o.doc.type === "generation");
+  state.exportTable = docs.find((d) => d.type === "export_prices") ?? null;
+  state.cities = docs.find((d) => d.type === "cities") ?? null;
 
   buildZoneSelect();
+  buildCitySelect();
   buildProviderSelect();
   buildVintageSelect();
+  buildNbtVintageSelect();
   renderCaveats();
   renderProvenance(index);
 
@@ -42,14 +49,23 @@ async function init() {
   $("file").addEventListener("change", (e) => e.target.files[0] && readFile(e.target.files[0]));
   setupDropzone();
 
-  for (const id of ["period", "trim", "zone", "baseline-type", "city-sd"]) {
+  for (const id of ["period", "trim", "zone", "baseline-type", "nbt-vintage"]) {
     $(id).addEventListener("change", recompute);
   }
+  $("city").addEventListener("change", () => {
+    buildProviderSelect();
+    syncVintageToProvider();
+    recompute();
+  });
   $("provider").addEventListener("change", () => {
     syncVintageToProvider();
     recompute();
   });
   $("vintage").addEventListener("change", recompute);
+  $("nem").addEventListener("change", () => {
+    syncNemControls();
+    recompute();
+  });
   $("profile").addEventListener("change", onProfileChange);
   $("profile-kwh").addEventListener("input", renderAddedLoad);
 }
@@ -84,11 +100,62 @@ function buildZoneSelect() {
     .join("");
 }
 
+/**
+ * City drives two things that are otherwise easy to get wrong: the franchise fee
+ * percentage, and which CCA — and for SDCP, which of its two rate schedules —
+ * actually serves the address. Picking the wrong SDCP schedule gets both the
+ * generation price and the PCIA vintage wrong, so it is better derived from the
+ * city than left to the user.
+ */
+function buildCitySelect() {
+  if (!state.cities) {
+    $("city").closest("label").classList.add("hidden");
+    return;
+  }
+  $("city").innerHTML = state.cities.cities
+    .map((c) => `<option value="${esc(c.name)}">${esc(c.name)}</option>`)
+    .join("");
+  // Nothing in the file identifies the customer's city, so there is no better
+  // default than the largest one. The note under the select says what it implies.
+  $("city").value = "San Diego";
+}
+
+const currentCity = () =>
+  state.cities?.cities.find((c) => c.name === $("city").value) ?? null;
+
+/** A city's total franchise fee: the territory-wide base plus its differential. */
+function franchiseFeePct() {
+  const ff = state.cities?.franchise_fee;
+  if (!ff) return null;
+  return ff.base_pct + (ff.differentials_pct?.[$("city").value] ?? 0);
+}
+
+function renderCityNote() {
+  const city = currentCity();
+  const pct = franchiseFeePct();
+  if (!city) return;
+  const cca = city.cca
+    ? `${city.cca.toUpperCase()} serves this city${city.cca_rate_group ? ` (${city.cca_rate_group} rates)` : ""}.`
+    : "No community choice provider serves this city.";
+  $("city-note").textContent =
+    `${cca} Franchise fee ${pct.toFixed(2)}%.` +
+    (city.name === "San Diego" ? " San Diego is the only city with a differential." : "");
+}
+
 function buildProviderSelect() {
   const opts = [`<option value="">SDG&E (bundled)</option>`];
+  const city = currentCity();
+  // Only the CCA that actually serves this city, and only its rate group. A
+  // customer can always opt out to SDG&E, so bundled stays available.
+  const available = state.overlays.filter((o) =>
+    !city || !city.cca
+      ? false
+      : o.doc.provider === city.cca &&
+        (!o.doc.rate_group || o.doc.rate_group === city.cca_rate_group),
+  );
   // Group by provider so a CCA's several products sit together.
   const byProvider = new Map();
-  for (const o of state.overlays) {
+  for (const o of (city ? available : state.overlays)) {
     if (!byProvider.has(o.doc.provider)) byProvider.set(o.doc.provider, []);
     byProvider.get(o.doc.provider).push(o);
   }
@@ -102,6 +169,7 @@ function buildProviderSelect() {
     opts.push(`</optgroup>`);
   }
   $("provider").innerHTML = opts.join("");
+  renderCityNote();
 }
 
 // SDCP's service_area strings are long; the first city plus a count reads better
@@ -130,6 +198,68 @@ function syncVintageToProvider() {
 }
 
 const currentOverlay = () => state.overlays.find((o) => o.file === $("provider").value) ?? null;
+
+// --- solar -----------------------------------------------------------------
+
+/**
+ * NBT vintages, newest first. The vintage is the year the customer applied and
+ * it fixes their export prices for nine years, so two customers on the same
+ * plan in the same house can be paid differently for the same exported kWh.
+ */
+function buildNbtVintageSelect() {
+  const table = state.exportTable;
+  if (!table) {
+    // No export price file means NEM 3.0 cannot be costed at all. Better to
+    // remove the option than to offer one that silently prices exports at zero.
+    $("nem").querySelector('option[value="nem3"]')?.remove();
+    return;
+  }
+  const label = (v) =>
+    v === "NBT00" ? "No locked-in vintage" : `Applied in 20${v.slice(3)}`;
+  $("nbt-vintage").innerHTML = Object.keys(table.vintages)
+    .sort()
+    .reverse()
+    .map((v) => `<option value="${esc(v)}">${esc(label(v))}</option>`)
+    .join("");
+}
+
+const nemMode = () => $("nem").value;
+
+function syncNemControls() {
+  $("nbt-vintage-wrap").classList.toggle("hidden", nemMode() !== "nem3");
+}
+
+/** The nem block costPlan expects, or null when there's no solar. */
+function nemOptions() {
+  const mode = nemMode();
+  if (mode === "none") return null;
+  return { mode, vintage: $("nbt-vintage").value, exportTable: state.exportTable };
+}
+
+/**
+ * The meter records exported energy separately, so we can tell that a household
+ * has solar — but not which tariff it is on, because that depends on the
+ * interconnection date. Say what we know and ask for the rest; do not guess a
+ * version, because guessing wrong changes the answer substantially.
+ */
+function renderSolarDetected(intervals) {
+  const exported = intervals.reduce((s, iv) => s + (iv.generationKWh ?? 0), 0);
+  const el = $("solar-detected");
+
+  if (exported > 0 && nemMode() === "none") {
+    el.innerHTML = notice("info", "This file shows exported energy — you have solar",
+      `${Math.round(exported).toLocaleString()} kWh went back to the grid over this period. ` +
+      "Pick your plan below: which one you're on depends on when your system was connected, " +
+      "which the file doesn't record. Until then these totals ignore your solar entirely.");
+  } else if (exported === 0 && nemMode() !== "none") {
+    el.innerHTML = notice("warn", "No exported energy in this file",
+      "A solar plan is selected but nothing in this export went back to the grid. Either the " +
+      "download didn't include the export channel or this account has no solar — either way the " +
+      "totals below are not a solar bill.");
+  } else {
+    el.innerHTML = "";
+  }
+}
 
 // --- import ----------------------------------------------------------------
 
@@ -194,7 +324,8 @@ function costOptions(intervals, overlayDoc) {
     climateZone: $("zone").value,
     baselineType: $("baseline-type").value,
     pciaVintage: Number($("vintage").value),
-    inCityOfSanDiego: $("city-sd").checked,
+    inCityOfSanDiego: currentCity()?.name === "San Diego",
+    nem: nemOptions(),
   };
 }
 
@@ -214,9 +345,14 @@ function recompute() {
 
   renderTrimNote(dropped);
 
+  renderSolarDetected(intervals);
+
   const overlay = currentOverlay();
+  // Under a NEM tariff most plans are simply not available, so they are dropped
+  // with a reason rather than ranked as options the customer cannot take.
+  const { allowed, excluded } = nemEligiblePlans(nemMode(), state.utility.plans);
   const results = [];
-  for (const plan of state.utility.plans) {
+  for (const plan of allowed) {
     if (overlay && !overlay.doc.plans[plan.id]) continue;
     try {
       results.push(costPlan({ ...costOptions(intervals, overlay?.doc), planId: plan.id }));
@@ -225,6 +361,7 @@ function recompute() {
     }
   }
   results.sort((a, b) => a.total - b.total);
+  renderExcluded(excluded);
   if (!results.length) return;
 
   if (!results.some((r) => r.planId === state.selectedPlanId)) {
@@ -290,13 +427,19 @@ function renderHeadline(results, intervals) {
 function renderTable(results) {
   const best = results[0].total;
   $("ranking").tBodies[0].innerHTML = results.map((r) => {
+    // Export credits and non-bypassable charges ride in the adders column
+    // rather than getting one each — they are zero for most people, and the
+    // per-plan detail below breaks them out.
     const adders = r.lines.pcia + r.lines.stateRegulatoryFee +
-      r.lines.franchiseFeeDifferential + r.lines.franchiseFeeEquivalent + r.lines.baselineCredit;
+      r.lines.franchiseFeeDifferential + r.lines.franchiseFeeEquivalent + r.lines.baselineCredit +
+      r.lines.nonbypassable - r.lines.exportCredit;
     const delta = r.total - best;
     const cls = [r.planId === results[0].planId ? "best" : "",
                  r.planId === state.selectedPlanId ? "selected" : ""].join(" ").trim();
     return `<tr data-plan="${esc(r.planId)}" class="${cls}" tabindex="0">
-      <td>${esc(r.planName)}<span class="plan-sub">${esc(r.provider)}${r.pricingModel === "tiered" ? " · tiered" : ""}</span></td>
+      <td>${esc(r.planName)}<span class="plan-sub">${esc(r.provider)}${r.pricingModel === "tiered" ? " · tiered" : ""}${
+        r.lines.exportCredit > 0 ? ` · ${money(r.lines.exportCredit)} export credit` : ""}${
+        r.unusedCredit > 0 ? " · ends in credit" : ""}</span></td>
       <td class="num-col">${money(r.lines.delivery)}</td>
       <td class="num-col">${money(r.lines.generation)}</td>
       <td class="num-col">${money(r.lines.fixed)}</td>
@@ -313,12 +456,25 @@ function renderTable(results) {
   }
 }
 
+/**
+ * Say which plans were left out and why. A silently shorter table reads as "these
+ * are your options"; under NEM 3.0 that would be one row with no explanation.
+ */
+function renderExcluded(excluded) {
+  if (!excluded.length) { $("excluded-note").innerHTML = ""; return; }
+  const reason = excluded[0].reason; // Same rule for every plan it dropped.
+  const names = excluded.map((x) => esc(x.name.split("—")[0].trim())).join(", ");
+  $("excluded-note").innerHTML =
+    `<b>${excluded.length} plan${excluded.length === 1 ? "" : "s"} not shown.</b> ` +
+    `${esc(reason)} Excluded: ${names}.`;
+}
+
 function renderCaveats() {
   const items = [
-    ["Solar and net metering are not modelled",
-     "NEM 2.0 and NEM 3.0 price exports very differently, and neither is implemented. If you have solar, these totals will be too high."],
-    ["Eligibility is not enforced",
-     "Every plan is priced, including ones you may not qualify for. TOU-ELEC is capped at 10,000 customers, EV plans need a registered EV, and EV-TOU requires a separately metered charger — so its total is not comparable to a whole-home plan."],
+    ["Solar is modelled; the annual true-up is not",
+     "NEM 2.0 nets exports against imports at retail, and NEM 3.0 credits them at SDG&E's published hourly export prices — both are implemented. What isn't: if you end the period holding credit, that is paid out at a wholesale rate that varies hourly, so a household generating more than it uses will do slightly better than shown."],
+    ["Eligibility is only enforced for solar",
+     "Under a solar plan the calculator drops the plans that tariff forbids. Everywhere else every plan is priced, including ones you may not qualify for. TOU-ELEC is capped at 10,000 customers, EV plans need a registered EV, and EV-TOU requires a separately metered charger — so its total is not comparable to a whole-home plan."],
     ["One rate revision per period",
      "Rates change several times a year. The calculator applies a single set to the whole period, which introduces a small error when your data spans a change."],
     ["Some fees are inferred, not published",
@@ -366,7 +522,8 @@ function renderAddedLoad() {
 
   // Rank both ways: adding a load can change which plan wins, which is the
   // most useful thing this section can tell anyone.
-  const rank = (series) => state.utility.plans
+  const eligible = nemEligiblePlans(nemMode(), state.utility.plans).allowed;
+  const rank = (series) => eligible
     .filter((p) => !overlay || overlay.doc.plans[p.id])
     .map((p) => { try { return costPlan({ ...costOptions(series, overlay?.doc), planId: p.id }); } catch { return null; } })
     .filter(Boolean)

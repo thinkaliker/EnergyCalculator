@@ -24,8 +24,14 @@ const check = (name, cond, detail = "") => {
   out.push(`<div class="${cond ? "ok" : "fail"}">${cond ? "ok  " : "FAIL"} ${name}${cond ? "" : "  " + detail}</div>`);
 };
 
-/** 45 days of 15-minute data spanning the Jun 1 season boundary. */
-function syntheticCsv() {
+/**
+ * 45 days of 15-minute data spanning the Jun 1 season boundary.
+ *
+ * With `solar`, midday intervals also export, which is what a real solar meter
+ * records: the import and export channels are separate, and the meter never
+ * sees the energy the house consumed straight off its own roof.
+ */
+function syntheticCsv({ solar = false } = {}) {
   const rows = [
     "Name,Test", "Address,Somewhere",
     "Meter Number,Date,Start Time,Duration,Consumption,Generation,Net",
@@ -36,16 +42,54 @@ function syntheticCsv() {
       const t = new Date(start.getFullYear(), start.getMonth(), start.getDate() + d, 0, s * 15);
       const hour = t.getHours();
       // Evening-weighted shape so on-peak actually matters.
-      const kwh = (hour >= 16 && hour < 21 ? 0.42 : hour < 6 ? 0.08 : 0.18).toFixed(4);
+      const kwh = hour >= 16 && hour < 21 ? 0.42 : hour < 6 ? 0.08 : 0.18;
+      // Midday export, tapering either side of noon — enough to matter without
+      // making the household a net generator over the period.
+      const exported = solar && hour >= 9 && hour < 16 ? 0.35 : 0;
+      const imported = solar && exported > 0 ? 0.02 : kwh;
       const mer = hour < 12 ? "AM" : "PM";
       const h12 = hour % 12 === 0 ? 12 : hour % 12;
       const time = `${h12}:${String(t.getMinutes()).padStart(2, "0")} ${mer}`;
       const date = `${t.getMonth() + 1}/${t.getDate()}/${t.getFullYear()}`;
-      rows.push(`"1","${date}","${time}","15","${kwh}","0.0000","${kwh}"`);
+      rows.push(`"1","${date}","${time}","15","${imported.toFixed(4)}",` +
+        `"${exported.toFixed(4)}","${(imported - exported).toFixed(4)}"`);
     }
   }
   return rows.join("\r\n");
 }
+
+/** Push a CSV through the real file input and let the page settle. */
+async function importCsv(win, doc, text) {
+  const file = new win.File([text], "test.csv", { type: "text/csv" });
+  const dt = new win.DataTransfer();
+  dt.items.add(file);
+  const input = doc.getElementById("file");
+  input.files = dt.files;
+  input.dispatchEvent(new win.Event("change"));
+  // FileReader is async and the re-cost that follows prices every plan. Wait for
+  // the table to actually repopulate rather than guessing at a duration.
+  await waitFor(() => doc.querySelectorAll("#ranking tbody tr").length > 0);
+  await settle(150);
+}
+
+const cheapestTotal = (doc) =>
+  parseFloat(doc.querySelector("#ranking tbody tr").cells[5].textContent.replace(/[$,]/g, ""));
+
+/**
+ * Total for one named plan. Comparing NEM modes by cheapest row would compare
+ * different plans — NEM 3.0 only ever ranks EV-TOU-5 — so anything measuring
+ * the effect of a tariff has to hold the plan fixed.
+ */
+const totalForPlan = (doc, re) => {
+  const row = [...doc.querySelectorAll("#ranking tbody tr")].find((r) => re.test(r.cells[0].textContent));
+  return row ? parseFloat(row.cells[5].textContent.replace(/[$,]/g, "")) : NaN;
+};
+
+const setSelect = (win, doc, id, value) => {
+  const el = doc.getElementById(id);
+  el.value = value;
+  el.dispatchEvent(new win.Event("change"));
+};
 
 const frame = document.getElementById("app");
 const errors = [];
@@ -65,17 +109,23 @@ async function run() {
   await settle(1200);
   check("page booted without an error notice", !doc.querySelector(".notice.warn"),
     doc.querySelector(".notice.warn")?.textContent ?? "");
-  check("rate files loaded into provider select", doc.getElementById("provider").options.length > 5);
+  // The provider list is filtered to whoever actually serves the selected city,
+  // so this is SDG&E plus one CCA's products — not every overlay on disk.
+  check("provider select offers the city's CCA plus bundled",
+    doc.getElementById("provider").options.length >= 4,
+    `${doc.getElementById("provider").options.length} options`);
+  check("city select populated", doc.getElementById("city").options.length > 10);
+  check("city defaults to San Diego", doc.getElementById("city").value, "San Diego");
+  check("city note states the franchise fee",
+    /franchise fee 6\.88%/i.test(doc.getElementById("city-note").textContent),
+    doc.getElementById("city-note").textContent);
+
+  check("solar dropdown offers both NEM tariffs",
+    [...doc.getElementById("nem").options].map((o) => o.value).join(),
+    "none,nem2,nem3");
 
   // Feed the synthetic export through the real file input.
-  const file = new win.File([syntheticCsv()], "test.csv", { type: "text/csv" });
-  const dt = new win.DataTransfer();
-  dt.items.add(file);
-  const input = doc.getElementById("file");
-  input.files = dt.files;
-  input.dispatchEvent(new win.Event("change"));
-
-  await settle(1500);
+  await importCsv(win, doc, syntheticCsv());
 
   const rows = [...doc.querySelectorAll("#ranking tbody tr")];
   check("ranking table populated", rows.length >= 8, `${rows.length} rows`);
@@ -159,6 +209,129 @@ async function run() {
   await settle(500);
   check("untrimmed still renders", doc.querySelectorAll("#ranking tbody tr").length >= 8);
 
+  // --- solar ---------------------------------------------------------------
+  // Re-import as a solar account. Everything below is about the page noticing,
+  // and about the two tariffs producing genuinely different answers.
+  trim.checked = true;
+  trim.dispatchEvent(new win.Event("change"));
+  setSelect(win, doc, "provider", [...doc.getElementById("provider").options][0].value);
+  await settle(400);
+  const noSolarTotal = cheapestTotal(doc);
+
+  await importCsv(win, doc, syntheticCsv({ solar: true }));
+
+  await waitFor(() => /exported energy/i.test(doc.getElementById("solar-detected").textContent));
+  const detected = doc.getElementById("solar-detected").textContent;
+  check("page notices the file contains exported energy", /exported energy/i.test(detected),
+    detected.trim().slice(0, 90));
+  check("but does not guess a NEM version", doc.getElementById("nem").value, "none");
+  check("solar vintage stays hidden until NEM 3.0 is picked",
+    doc.getElementById("nbt-vintage-wrap").classList.contains("hidden"));
+
+  // Hold the plan fixed across modes: EV-TOU-5 is the only one all three offer.
+  const ignoringSolar = totalForPlan(doc, /EV-TOU-5/);
+  check("EV-TOU-5 is priced before any NEM mode is picked", ignoringSolar > 0, ignoringSolar);
+
+  setSelect(win, doc, "nem", "nem2");
+  await waitFor(() => [...doc.querySelectorAll("#ranking tbody tr")]
+    .every((r) => !/tiered/.test(r.cells[0].textContent)));
+  const nem2Total = totalForPlan(doc, /EV-TOU-5/);
+  check("NEM 2.0 costs less than ignoring the solar entirely", nem2Total < ignoringSolar,
+    `${ignoringSolar} -> ${nem2Total}`);
+  check("NEM 2.0 drops the tiered plan",
+    [...doc.querySelectorAll("#ranking tbody tr")].every((r) => !/tiered/.test(r.cells[0].textContent)));
+  check("NEM 2.0 says which plans it dropped and why",
+    /not shown/i.test(doc.getElementById("excluded-note").textContent),
+    doc.getElementById("excluded-note").textContent.trim().slice(0, 90));
+
+  setSelect(win, doc, "nem", "nem3");
+  await waitFor(() => doc.querySelectorAll("#ranking tbody tr").length === 1);
+  const rows3 = [...doc.querySelectorAll("#ranking tbody tr")];
+  check("NEM 3.0 shows only EV-TOU-5", rows3.length, 1, `${rows3.length} rows`);
+  check("NEM 3.0 names the plan it kept", /EV-TOU-5/i.test(rows3[0]?.cells[0].textContent ?? ""));
+  check("NEM 3.0 reveals the vintage selector",
+    !doc.getElementById("nbt-vintage-wrap").classList.contains("hidden"));
+  check("vintage selector is populated", doc.getElementById("nbt-vintage").options.length > 1);
+  check("NEM 3.0 credits the exports", /export credit/i.test(rows3[0]?.cells[0].textContent ?? ""),
+    rows3[0]?.cells[0].textContent ?? "");
+
+  const nem3Total = totalForPlan(doc, /EV-TOU-5/);
+  check("NEM 3.0 also beats ignoring the solar", nem3Total < ignoringSolar,
+    `${ignoringSolar} -> ${nem3Total}`);
+  // Retail netting is worth more than avoided-cost export at these prices, on
+  // the same plan. If this ever flips, either the export table or the netting
+  // path is wrong.
+  check("NEM 2.0 beats NEM 3.0 on the same plan", nem2Total < nem3Total,
+    `nem2 ${nem2Total} vs nem3 ${nem3Total}`);
+
+  // Changing vintage must re-cost without error. It does NOT have to change the
+  // total: all three vintages publish identical values for calendar year 2026,
+  // verified against the source CSVs. They diverge in other years — NBT25 reads
+  // 0.484405 for Sep 2025 against 0.580566 for Sep 2026 — so a period outside
+  // 2026 would separate them. Asserting a difference here would be asserting
+  // something the published data does not say.
+  const vintages = [...doc.getElementById("nbt-vintage").options].map((o) => o.value);
+  setSelect(win, doc, "nbt-vintage", vintages[vintages.length - 1]);
+  await settle(700);
+  check("switching NBT vintage re-costs without error",
+    totalForPlan(doc, /EV-TOU-5/) > 0 && errors.length === 0,
+    `${nem3Total} -> ${totalForPlan(doc, /EV-TOU-5/)}`);
+
+  // The dangerous case: solar plan selected, no export data in the file.
+  await importCsv(win, doc, syntheticCsv());
+  await waitFor(() => /no exported energy/i.test(doc.getElementById("solar-detected").textContent));
+  const warned = doc.getElementById("solar-detected").textContent;
+  check("warns when a solar plan is picked on a non-solar file", /no exported energy/i.test(warned),
+    warned.trim().slice(0, 90));
+
+  setSelect(win, doc, "nem", "none");
+  await settle(700);
+  check("returning to no-solar restores the original total",
+    Math.abs(cheapestTotal(doc) - noSolarTotal) < 0.01, `${noSolarTotal} vs ${cheapestTotal(doc)}`);
+
+  // --- city ----------------------------------------------------------------
+  // City sets the franchise fee and narrows the providers. Getting the SDCP rate
+  // group wrong would take the PCIA vintage with it, so it is derived, not asked.
+  setSelect(win, doc, "city", "Carlsbad");
+  await waitFor(() => /cea/i.test(doc.getElementById("city-note").textContent));
+  check("a CEA city offers CEA products",
+    [...doc.getElementById("provider").options].some((o) => o.value.includes("cea")),
+    [...doc.getElementById("provider").options].map((o) => o.value).join(" "));
+  check("a CEA city does not offer SDCP",
+    [...doc.getElementById("provider").options].every((o) => !o.value.includes("sdcp")));
+  check("non-San-Diego city gets the 1.1% base franchise fee",
+    /franchise fee 1\.10%/i.test(doc.getElementById("city-note").textContent),
+    doc.getElementById("city-note").textContent);
+
+  setSelect(win, doc, "city", "National City");
+  await waitFor(() => /2022v/i.test(doc.getElementById("city-note").textContent));
+  check("National City resolves to SDCP's 2022v rate group",
+    [...doc.getElementById("provider").options].filter((o) => o.value.includes("sdcp"))
+      .every((o) => o.value.includes("2022v")),
+    [...doc.getElementById("provider").options].map((o) => o.value).join(" "));
+
+  setSelect(win, doc, "city", "Coronado");
+  await waitFor(() => /no community choice/i.test(doc.getElementById("city-note").textContent));
+  check("a city with no CCA offers only bundled SDG&E",
+    doc.getElementById("provider").options.length, 1);
+  check("that still costs every plan",
+    doc.querySelectorAll("#ranking tbody tr").length >= 8);
+
+  // The franchise fee must actually move the total, not just the caption.
+  setSelect(win, doc, "city", "San Diego");
+  await waitFor(() => /6\.88/.test(doc.getElementById("city-note").textContent));
+  setSelect(win, doc, "provider",
+    [...doc.getElementById("provider").options].find((o) => o.value.includes("sdcp"))?.value);
+  await settle(700);
+  const sdTotal = cheapestTotal(doc);
+  setSelect(win, doc, "city", "Chula Vista");
+  await waitFor(() => /1\.10/.test(doc.getElementById("city-note").textContent));
+  setSelect(win, doc, "provider",
+    [...doc.getElementById("provider").options].find((o) => o.value.includes("sdcp"))?.value);
+  await settle(700);
+  check("leaving San Diego lowers the franchise fee and the total",
+    cheapestTotal(doc) < sdTotal, `${sdTotal} -> ${cheapestTotal(doc)}`);
+
   check("no uncaught errors during the run", errors.length === 0, errors.join(" | "));
 
   document.getElementById("out").innerHTML =
@@ -179,4 +352,23 @@ function hasInk(canvas) {
 }
 
 const settle = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Wait until `fn()` is truthy, then return.
+ *
+ * Fixed sleeps made this harness flaky: FileReader is async, re-costing prices
+ * every plan, and a sleep that is long enough on one run is not on the next.
+ * The failure then surfaces as an unrelated assertion further down. Polling for
+ * the condition each assertion actually depends on removes the race instead of
+ * padding around it, and a genuine regression still fails — just after the
+ * timeout rather than immediately.
+ */
+async function waitFor(fn, timeout = 6000, step = 100) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try { if (fn()) return true; } catch { /* mid-render; try again */ }
+    await settle(step);
+  }
+  return false;
+}
 </script>

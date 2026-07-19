@@ -17,6 +17,11 @@ const DAY_TYPES = ["weekday", "weekend"];
 const PRICE_MIN = 0.01;
 const PRICE_MAX = 1.5;
 
+// Export prices are avoided-cost values, not retail, so they need their own
+// band: they run an order of magnitude below retail most of the year and spike
+// above $2/kWh on September evenings.
+const EXPORT_PRICE_MAX = 3.0;
+
 const errors = [];
 const warnings = [];
 
@@ -252,9 +257,214 @@ function validateUtility(file, doc) {
     } else {
       err(file, `${label}.pricing_model: must be "tou" or "tiered", got ${JSON.stringify(model)}`);
     }
+    checkNonbypassable(file, label, plan);
     if (plan?.id) models[plan.id] = model;
   }
   return models;
+}
+
+/**
+ * Non-bypassable charges, used only on the NEM 2.0 path.
+ *
+ * Two ways to get these wrong, both silent. A total that doesn't match its
+ * components means one was misread off the UDC table. A total that exceeds the
+ * plan's cheapest delivery price would make the netted delivery rate negative,
+ * so exporting during super-off-peak would *earn* delivery credit — a plausible
+ * looking bill built on a sign error.
+ */
+function checkNonbypassable(file, label, plan) {
+  const nbc = plan?.nonbypassable_charges;
+  if (!nbc) return; // Optional: a plan without it simply can't be costed under NEM 2.0.
+
+  const parts = ["ppp_per_kwh", "nd_per_kwh", "ctc_per_kwh", "dwr_bc_per_kwh", "wf_nbc_per_kwh"];
+  let sum = 0;
+  for (const k of parts) {
+    if (typeof nbc[k] !== "number" || Number.isNaN(nbc[k])) {
+      err(file, `${label}.nonbypassable_charges.${k}: required number, got ${JSON.stringify(nbc[k])}`);
+      return;
+    }
+    sum += nbc[k];
+  }
+  sum = Number(sum.toFixed(5));
+
+  if (typeof nbc.total_per_kwh !== "number") {
+    err(file, `${label}.nonbypassable_charges.total_per_kwh: required number`);
+    return;
+  }
+  if (Math.abs(nbc.total_per_kwh - sum) > 1e-9) {
+    err(file, `${label}.nonbypassable_charges.total_per_kwh is ${nbc.total_per_kwh} but its ` +
+      `components sum to ${sum} — one of them was misread`);
+  }
+  if (nbc.total_per_kwh <= 0) {
+    err(file, `${label}.nonbypassable_charges.total_per_kwh must be positive, got ${nbc.total_per_kwh}`);
+  }
+
+  const prices = [];
+  const walk = (node) => {
+    if (Array.isArray(node)) node.forEach((b) => prices.push(b?.price_per_kwh));
+    else if (node && typeof node === "object") Object.values(node).forEach(walk);
+  };
+  walk(plan.delivery);
+  const cheapest = Math.min(...prices.filter((p) => typeof p === "number"));
+  if (Number.isFinite(cheapest) && nbc.total_per_kwh >= cheapest) {
+    err(file, `${label}.nonbypassable_charges.total_per_kwh ${nbc.total_per_kwh} is not below the ` +
+      `plan's cheapest delivery price ${cheapest} — netting it out would give a negative ` +
+      `delivery rate, which credits exports instead of charging imports`);
+  }
+}
+
+/**
+ * City -> CCA membership and franchise fee percentage.
+ *
+ * The franchise fee is the reason this file exists: a city's total percentage is
+ * the 1.1% base plus its differential, and getting it wrong is a whole line item
+ * on every CCA bill. The CCA membership is checked against the overlays actually
+ * on disk, so a city pointing at a provider we cannot price fails here rather
+ * than silently offering nothing.
+ */
+function validateCities(file, doc, generations) {
+  checkProvenance(file, doc);
+
+  const base = doc.franchise_fee?.base_pct;
+  if (typeof base !== "number" || base < 0 || base > 20) {
+    err(file, `franchise_fee.base_pct: expected a percentage 0-20, got ${JSON.stringify(base)}`);
+  }
+  for (const [city, pct] of Object.entries(doc.franchise_fee?.differentials_pct ?? {})) {
+    if (typeof pct !== "number" || pct < 0 || pct > 20) {
+      err(file, `franchise_fee.differentials_pct.${city}: expected a percentage 0-20, got ${JSON.stringify(pct)}`);
+    }
+  }
+
+  if (!Array.isArray(doc.cities) || !doc.cities.length) {
+    err(file, "cities: expected a non-empty array");
+    return;
+  }
+
+  // Which providers and rate groups we can actually price, and which cities each
+  // one claims. Matched against the structured service_area_cities list rather
+  // than the prose service_area: "San Diego" is a substring of "County of San
+  // Diego", so substring matching silently accepts the wrong rate group.
+  const providers = new Map();
+  const serviceAreas = new Map();
+  for (const [, g] of generations) {
+    if (!providers.has(g.provider)) providers.set(g.provider, new Set());
+    const group = g.rate_group ?? "";
+    providers.get(g.provider).add(group);
+    if (Array.isArray(g.service_area_cities)) {
+      serviceAreas.set(`${g.provider}|${group}`, new Set(g.service_area_cities));
+    }
+  }
+  // A provider with a single unnamed group needs no rate_group on its cities.
+  for (const [p, groups] of providers) {
+    if (groups.size === 1 && groups.has("")) providers.set(p, new Set());
+  }
+
+  const seen = new Set();
+  for (const [i, c] of doc.cities.entries()) {
+    const at = c?.name ? `cities.${c.name}` : `cities[${i}]`;
+    if (!c?.name) { err(file, `${at}: name is required`); continue; }
+    if (seen.has(c.name)) err(file, `${at}: duplicate city`);
+    seen.add(c.name);
+
+    if (c.cca == null) continue;
+    const groups = providers.get(c.cca);
+    if (!groups) {
+      err(file, `${at}.cca: no generation overlay for provider "${c.cca}" ` +
+        `(have: ${[...providers.keys()].join(", ") || "none"})`);
+      continue;
+    }
+    // A provider that publishes several rate schedules needs the city to say
+    // which one — SDCP's two differ in both price and PCIA vintage.
+    if (groups.size > 1 && !c.cca_rate_group) {
+      err(file, `${at}: "${c.cca}" publishes rate groups ${[...groups].join(", ")}, ` +
+        `so cca_rate_group is required`);
+      continue;
+    }
+    if (c.cca_rate_group && !groups.has(c.cca_rate_group)) {
+      err(file, `${at}.cca_rate_group: "${c.cca_rate_group}" is not a rate group of ` +
+        `"${c.cca}" (have: ${[...groups].join(", ")})`);
+      continue;
+    }
+
+    // A rate group that exists but is the wrong one is the dangerous case: it
+    // gets both the generation price and the PCIA vintage wrong, and nothing
+    // downstream can tell.
+    const claimed = serviceAreas.get(`${c.cca}|${c.cca_rate_group ?? ""}`);
+    if (claimed && !claimed.has(c.name)) {
+      const elsewhere = [...groups].find(
+        (g) => g !== (c.cca_rate_group ?? "") && serviceAreas.get(`${c.cca}|${g}`)?.has(c.name),
+      );
+      const where = c.cca_rate_group ? `${c.cca} ${c.cca_rate_group}` : c.cca;
+      if (elsewhere) {
+        err(file, `${at}: "${c.name}" is served by ${c.cca} ${elsewhere}, not ${where} — ` +
+          `the wrong rate group means the wrong generation price and the wrong PCIA vintage`);
+      } else {
+        warn(file, `${at}: "${c.name}" is not in the service area of ${where}. ` +
+          `Check the CCA's published service area.`);
+      }
+    }
+  }
+
+  for (const city of Object.keys(doc.franchise_fee?.differentials_pct ?? {})) {
+    if (!seen.has(city)) {
+      warn(file, `franchise_fee.differentials_pct.${city}: no such city in the cities list`);
+    }
+  }
+}
+
+/**
+ * The NEM 3.0 export price table: vintage -> year -> component -> month -> day
+ * type -> 24 hourly $/kWh. Generated by fetch-nbt-export.mjs, so the checks here
+ * are about the file being usable, not about transcription.
+ *
+ * A missing hour is the dangerous case: it prices that hour's exports at zero
+ * rather than failing, which reads as "solar isn't worth much in the evening".
+ */
+function validateExportPrices(file, doc) {
+  checkProvenance(file, doc);
+
+  const vintages = doc.vintages;
+  if (!vintages || typeof vintages !== "object" || !Object.keys(vintages).length) {
+    err(file, "vintages: missing or empty");
+    return;
+  }
+
+  for (const [vintage, byYear] of Object.entries(vintages)) {
+    if (!Object.keys(byYear ?? {}).length) {
+      err(file, `vintages.${vintage}: no calendar years`);
+      continue;
+    }
+    for (const [year, components] of Object.entries(byYear)) {
+      for (const component of ["generation", "delivery"]) {
+        const months = components?.[component];
+        if (!months) {
+          err(file, `vintages.${vintage}.${year}.${component}: missing`);
+          continue;
+        }
+        for (let month = 1; month <= 12; month++) {
+          for (const dayType of ["weekday", "weekend"]) {
+            const at = `vintages.${vintage}.${year}.${component}.${month}.${dayType}`;
+            const hours = months[month]?.[dayType];
+            if (!Array.isArray(hours) || hours.length !== 24) {
+              err(file, `${at}: expected 24 hourly values, got ${hours?.length ?? "none"}`);
+              continue;
+            }
+            for (const [hour, v] of hours.entries()) {
+              if (typeof v !== "number" || Number.isNaN(v)) {
+                err(file, `${at}[${hour}]: must be a number, got ${JSON.stringify(v)}`);
+              } else if (v < 0) {
+                err(file, `${at}[${hour}]: negative export price (${v})`);
+              } else if (v > EXPORT_PRICE_MAX) {
+                // ACC values genuinely spike above $2/kWh on September evenings,
+                // so the ceiling here is well above the retail band.
+                warn(file, `${at}[${hour}]: ${v} exceeds ${EXPORT_PRICE_MAX}/kWh — check source units`);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 // planModels maps utility plan id -> "tou" | "tiered". An overlay must use the
@@ -285,6 +495,20 @@ function validateGeneration(file, doc, planModels, seasons) {
       err(file, `generation_credit_per_kwh: must be negative (a credit), got ${c}`);
     } else if (c < -PRICE_MAX) {
       warn(file, `generation_credit_per_kwh: ${c} is larger than any plausible rate — check units`);
+    }
+  }
+
+  // Both CCAs credit NEM 3.0 exports at SDG&E's published value plus a flat
+  // adder of their own. Positive: it is paid on top, unlike generation_credit.
+  if ("nbt_generation_adder_per_kwh" in doc) {
+    const a = doc.nbt_generation_adder_per_kwh;
+    if (typeof a !== "number" || Number.isNaN(a)) {
+      err(file, `nbt_generation_adder_per_kwh: must be a number, got ${JSON.stringify(a)}`);
+    } else if (a < 0) {
+      err(file, `nbt_generation_adder_per_kwh: must not be negative (it is paid to the customer), got ${a}`);
+    } else if (a > 0.05) {
+      warn(file, `nbt_generation_adder_per_kwh: ${a} is large for an export adder — ` +
+        `published values are around $0.0075-$0.01. Check units and the source table.`);
     }
   }
 
@@ -328,12 +552,15 @@ for (const f of files) {
   }
 }
 
+const TYPES = ["utility", "generation", "export_prices", "cities"];
 const utilities = [...docs].filter(([, d]) => d.type === "utility");
 const generations = [...docs].filter(([, d]) => d.type === "generation");
+const exportPrices = [...docs].filter(([, d]) => d.type === "export_prices");
+const cityFiles = [...docs].filter(([, d]) => d.type === "cities");
 
-for (const [, d] of docs) {
-  if (d.type !== "utility" && d.type !== "generation") {
-    err("(file)", `type must be "utility" or "generation", got ${JSON.stringify(d.type)}`);
+for (const [f, d] of docs) {
+  if (!TYPES.includes(d.type)) {
+    err(f, `type must be one of ${TYPES.join(", ")}, got ${JSON.stringify(d.type)}`);
   }
 }
 
@@ -349,6 +576,8 @@ if (generations.length && !utilities.length) {
 }
 
 for (const [f, d] of generations) validateGeneration(f, d, planModels, seasonNames);
+for (const [f, d] of exportPrices) validateExportPrices(f, d);
+for (const [f, d] of cityFiles) validateCities(f, d, generations);
 
 for (const w of warnings) console.warn(`WARN  ${w}`);
 for (const e of errors) console.error(`ERROR ${e}`);

@@ -68,6 +68,7 @@
   <!-- Step 2 ------------------------------------------------------------ -->
   <section class="step hidden" id="step-setup">
     <h2><span class="num">2</span> Your situation</h2>
+    <div id="solar-detected"></div>
     <div class="controls grid">
       <label>
         Climate zone
@@ -83,6 +84,20 @@
         <small>All-electric needs electric space or water heating, and must be applied for.</small>
       </label>
       <label>
+        Solar
+        <select id="nem">
+          <option value="none">No solar</option>
+          <option value="nem2">NEM 2.0 — connected before Apr 15 2023</option>
+          <option value="nem3">NEM 3.0 / Solar Billing Plan — Apr 15 2023 or later</option>
+        </select>
+        <small>Set by your interconnection date, which your usage file doesn't carry.</small>
+      </label>
+      <label id="nbt-vintage-wrap" class="hidden">
+        Solar vintage
+        <select id="nbt-vintage"></select>
+        <small>The year you applied. Your export prices are locked to it for nine years.</small>
+      </label>
+      <label>
         Generation provider
         <select id="provider"></select>
         <small>SDG&amp;E delivers the power either way — only generation changes.</small>
@@ -92,9 +107,10 @@
         <select id="vintage"></select>
         <small>The year you left SDG&amp;E generation. Set from your provider.</small>
       </label>
-      <label class="check">
-        <input type="checkbox" id="city-sd">
-        <span>I'm inside San Diego city limits<small>Adds the franchise fee differential</small></span>
+      <label>
+        City
+        <select id="city"></select>
+        <small id="city-note">Sets your franchise fee and which providers serve you.</small>
       </label>
     </div>
   </section>
@@ -125,6 +141,7 @@
         <tbody></tbody>
       </table>
     </div>
+    <p class="footnote" id="excluded-note"></p>
     <p class="footnote">
       Cost is for the selected period only, never annualized. Click a row to see
       it charted below.

@@ -266,8 +266,37 @@ Correctness *is* the product here, so there needs to be a known-answer check.
 
 There is deliberately **no bill import feature**. Validation is a manual step: hand a real SDG&E bill plus the matching interval data to an LLM and confirm the calculated total matches. Confirmed results get recorded in the repo as regression references, so a later rate-schema change that breaks the math is visible.
 
+## City
+
+City is asked for, not derived — nothing in a Green Button export identifies it. It settles two things that are otherwise guesswork:
+
+**Which CCA serves the address**, and for SDCP *which of its two rate schedules*. That second part matters more than it looks: the rate group also fixes the PCIA vintage, so choosing wrongly gets both the generation price and the exit fee wrong at once. Deriving it from the city removes the choice. `rates/cities.json` carries the membership, sourced from SDG&E's Active CCAs page and cross-checked against each overlay's own `service_area_cities` — the validator fails if a city is filed under a group that doesn't claim it.
+
+**The franchise fee percentage.** This was two unexplained constants until the Preliminary Statement explained them. Section H.1 defines the Franchise Fee Differential as *"the difference between the franchise fee percentage and 1.1%"* and lists exactly one: City of San Diego, 5.78%. So 1.1% is the franchise fee built into everyone's rates, and San Diego's total is 1.1 + 5.78 = **6.88%** — which is precisely the figure a City of San Diego bill showed, while a bill from another city showed 1.10%. One rule, not two constants.
+
+CCA customers pay their city's *total* percentage as an equivalent surcharge on SDG&E's imputed generation, since SDG&E never bills them for the commodity. Hardcoding 6.88% therefore overcharged every CCA customer outside San Diego by 5.78 points on that line.
+
+Selecting a city narrows the provider list but never forces it: opting out to SDG&E bundled service is always available.
+
+## Solar
+
+The meter records import and export on separate channels, so an export tells us a household has solar — but not which tariff it is on, because that follows the interconnection date. That has to be asked, and guessing it wrong changes the answer substantially. The page detects the export channel, says so, and still waits to be told.
+
+The two tariffs are not variations on a theme:
+
+**NEM 2.0** (Schedule NEM-ST). Exports net against imports at the *retail* price of whichever TOU period they fall in — a kWh out at 2pm exactly cancels a kWh in at 2pm. The customer is effectively buying storage from the grid at par.
+
+The exception is what makes it worth modelling carefully. Per SC 1, non-bypassable charges — PPP, ND, CTC, DWR-BC and WF-NBC — are billed on *"the kWhs consumed in each metered interval net of exports"* and survive the netting. Our delivery prices fold all five in, so `nonbypassable_charges` on each plan holds them separately: the netting runs against `delivery − total_per_kwh`, and that total is billed on un-netted import. Without this a net-zero house looks free, which it is not. PCIA follows the same base — an hour of surplus does not earn the exit fee back.
+
+**NEM 3.0** (Schedule NBT). Imports bill gross at retail; exports earn a credit from an hourly avoided-cost table. Midday exports are worth roughly a tenth of retail, September evening exports several times it. Residential customers *must* take EV-TOU-5, which is why this is the one place the calculator enforces eligibility rather than recording it.
+
+SDG&E publishes the full table under CPUC Resolution E-5301 as a MIDAS upload — a 40 MB CSV per vintage, keyed by month × day type × hour rather than 8760 distinct hours. `fetch-nbt-export.mjs` collapses it to `rates/nbt-export.json`. Day type comes from the `DayStart` column, where 8 means holiday; the holiday list matches Electric Rule 1 exactly, so `calendar.js` already resolves it. Timestamps in the source are UTC but the day-type and hour columns are Pacific prevailing time, so only the calendar year needs converting — and it does need converting, since a Pacific evening on Dec 31 is stamped Jan 1 UTC.
+
+Neither CCA publishes its own export curve. Both state they use SDG&E's values and pay a flat adder on top — SDCP $0.0075/kWh, CEA $0.01/kWh — carried as `nbt_generation_adder_per_kwh` in each overlay.
+
+**Not modelled: the annual true-up.** Credits carry month to month, but a customer ending the period in credit is not paid it in cash; they receive Net Surplus Compensation at a wholesale rate that is DLAP-indexed for SDG&E and CAISO-indexed for SDCP and varies hourly. CEA publishes a flat $0.06/kWh, but paying out for one provider and not the others would bias the comparison, so the bill floors at zero and the leftover is reported in kWh instead.
+
 ## Deferred
 
-- **Solar / NEM (phase 2).** NEM 2.0 and NEM 3.0 net billing are structurally different — net billing prices exports against an hourly export-value table rather than netting against retail. Deferred, but the rate schema should leave room for export pricing now, since retrofitting it later would mean rewriting every rate file.
-- **Eligibility enforcement.** Schema field exists and is populated; nothing reads it yet.
+- **Eligibility enforcement beyond solar.** Schema field exists and is populated; only the NEM tariffs read it.
 - **Additional utilities beyond SDG&E.**

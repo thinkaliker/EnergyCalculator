@@ -81,10 +81,14 @@
     "franchise_fee_differential_applies_to": "customers within the corporate limits of the City of San Diego",
     "franchise_fee_differential_base": "total_electric_charges - pcia - wf_nbc",
 
+    "franchise_fee_base_pct": 1.1,
+    "franchise_fee_base_source": "Preliminary Statement, General Information H.1 (EGENERAL, tarfKey 1), Advice Ltr. 3326-E effective Jan 1 2019: the Franchise Fee Differential is 'the difference between the franchise fee percentage and 1.1%'. So 1.1% is the base franchise fee everywhere in the territory, and a city's total is 1.1% plus its differential.",
     "franchise_fee_equivalent_surcharge_pct": 6.88,
+    "franchise_fee_equivalent_surcharge_pct_DEPRECATED": "Kept for reference only — the engine now derives the rate as franchise_fee_base_pct + the city's differential. 6.88% is that derivation for the City of San Diego (1.1 + 5.78) and was never a territory-wide constant; applying it everywhere overcharged every customer outside San Diego by 5.78 points on this line.",
     "franchise_fee_equivalent_surcharge_applies_to": "CCA customers only — the utility imputes its own Schedule EECC and charges franchise fees on that commodity amount (Schedule CCA, per D.97-10-087). Entities of the State of California or a political subdivision are exempt.",
     "franchise_fee_equivalent_surcharge_base": "imputed_sdge_eecc + care_surcharge",
     "franchise_fee_equivalent_surcharge_unverified": "The 6.88% rate is NOT published in Schedule CCA or CCA-CRS — it appears to be city-set. Taken from the bill. The base derivation (imputed EECC + CARE surcharge at 0.00437/kWh) reproduces the bill's 65.44 exactly, but is inferred from a single bill, not stated in any tariff.",
+    "franchise_fee_equivalent_surcharge_rate_VARIES_BY_CITY": "CONFIRMED city-set by a second bill: a CEA customer in a different city was charged 1.10%, against the 6.88% on the SDCP bill this figure came from. The BASE formula held up — the derived base came within 2.5% of that bill's printed 56.82 — but the rate is not a constant. The calculator applies 6.88% to everyone, which overstates this line for any city with a lower rate. Needs a city-to-rate mapping or a user input; see README 'Needs verifying'.",
 
     "care_surcharge_per_kwh": 0.00437
   },
@@ -137,6 +141,18 @@
       "eligibility": {
         "notes": "SDG&E's default residential schedule; no interval meter required. Recorded, not enforced yet."
       },
+      "nonbypassable_charges": {
+        "_source": "Schedule DR, Cal. P.U.C. Sheet 64801-E (Sheet 3, UDC Rates), Advice Ltr. 4843-E effective Jun 1 2026",
+        "ppp_per_kwh": 0.01515,
+        "nd_per_kwh": 0.00000,
+        "ctc_per_kwh": -0.00007,
+        "dwr_bc_per_kwh": 0.00000,
+        "wf_nbc_per_kwh": 0.00591,
+        "total_per_kwh": 0.02099,
+        "_why": "NEM 2.0 nets exports against imports at full retail, but these five charges survive that netting — Schedule NEM-ST SC 1 bills them on 'the kWhs consumed in each metered interval net of exports'. Only used on the NEM 2.0 path.",
+        "_relation_to_delivery": "PPP, ND and CTC are components inside UDC Total; DWR-BC and WF-NBC are added on top of it. delivery.price_per_kwh already contains all five, so the NEM 2.0 path nets against (delivery - total_per_kwh) and bills total_per_kwh separately on un-netted import.",
+        "_flat": "Identical across every season and TOU period on this schedule, so one figure covers the plan. Verified against the sheet rather than assumed — PPP is 0.01713 on EV-TOU, not 0.01515."
+      },
 
       "delivery": {
         "summer": [
@@ -166,6 +182,18 @@
       "name": "TOU-DR1 — Residential Time-of-Use",
       "eligibility": {
         "notes": "SDG&E standard residential schedule. Recorded, not enforced yet."
+      },
+      "nonbypassable_charges": {
+        "_source": "Schedule TOU-DR1, UDC Rates table, Advice Ltr. 4843-E effective Jun 1 2026",
+        "ppp_per_kwh": 0.01515,
+        "nd_per_kwh": 0.00000,
+        "ctc_per_kwh": -0.00007,
+        "dwr_bc_per_kwh": 0.00000,
+        "wf_nbc_per_kwh": 0.00591,
+        "total_per_kwh": 0.02099,
+        "_why": "NEM 2.0 nets exports against imports at full retail, but these five charges survive that netting — Schedule NEM-ST SC 1 bills them on 'the kWhs consumed in each metered interval net of exports'. Only used on the NEM 2.0 path.",
+        "_relation_to_delivery": "PPP, ND and CTC are components inside UDC Total; DWR-BC and WF-NBC are added on top of it. delivery.price_per_kwh already contains all five, so the NEM 2.0 path nets against (delivery - total_per_kwh) and bills total_per_kwh separately on un-netted import.",
+        "_flat": "Identical across every season and TOU period on this schedule, so one figure covers the plan. Verified against the sheet rather than assumed — PPP is 0.01713 on EV-TOU, not 0.01515."
       },
 
       "delivery": {
@@ -227,6 +255,18 @@
       },
       "eligibility": {
         "notes": "Requires an electric vehicle. Recorded, not enforced yet."
+      },
+      "nonbypassable_charges": {
+        "_source": "Schedule EV-TOU-5, UDC Rates table, Advice Ltr. 4843-E effective Jun 1 2026",
+        "ppp_per_kwh": 0.01515,
+        "nd_per_kwh": 0.00000,
+        "ctc_per_kwh": -0.00007,
+        "dwr_bc_per_kwh": 0.00000,
+        "wf_nbc_per_kwh": 0.00591,
+        "total_per_kwh": 0.02099,
+        "_why": "NEM 2.0 nets exports against imports at full retail, but these five charges survive that netting — Schedule NEM-ST SC 1 bills them on 'the kWhs consumed in each metered interval net of exports'. Only used on the NEM 2.0 path.",
+        "_relation_to_delivery": "PPP, ND and CTC are components inside UDC Total; DWR-BC and WF-NBC are added on top of it. delivery.price_per_kwh already contains all five, so the NEM 2.0 path nets against (delivery - total_per_kwh) and bills total_per_kwh separately on un-netted import.",
+        "_flat": "Identical across every season and TOU period on this schedule, so one figure covers the plan. Verified against the sheet rather than assumed — PPP is 0.01713 on EV-TOU, not 0.01515."
       },
 
       "delivery": {
@@ -312,6 +352,18 @@
       "eligibility": {
         "notes": "Optional residential schedule; requires interval metering. Recorded, not enforced yet."
       },
+      "nonbypassable_charges": {
+        "_source": "Schedule TOU-DR, UDC Rates table, Advice Ltr. 4843-E effective Jun 1 2026",
+        "ppp_per_kwh": 0.01515,
+        "nd_per_kwh": 0.00000,
+        "ctc_per_kwh": -0.00007,
+        "dwr_bc_per_kwh": 0.00000,
+        "wf_nbc_per_kwh": 0.00591,
+        "total_per_kwh": 0.02099,
+        "_why": "NEM 2.0 nets exports against imports at full retail, but these five charges survive that netting — Schedule NEM-ST SC 1 bills them on 'the kWhs consumed in each metered interval net of exports'. Only used on the NEM 2.0 path.",
+        "_relation_to_delivery": "PPP, ND and CTC are components inside UDC Total; DWR-BC and WF-NBC are added on top of it. delivery.price_per_kwh already contains all five, so the NEM 2.0 path nets against (delivery - total_per_kwh) and bills total_per_kwh separately on un-netted import.",
+        "_flat": "Identical across every season and TOU period on this schedule, so one figure covers the plan. Verified against the sheet rather than assumed — PPP is 0.01713 on EV-TOU, not 0.01515."
+      },
 
       "delivery": {
         "summer": {
@@ -374,6 +426,18 @@
       "eligibility": {
         "notes": "Available since Jan 1 2019 to domestic service with interval metering. Recorded, not enforced yet."
       },
+      "nonbypassable_charges": {
+        "_source": "Schedule TOU-DR2, UDC Rates table, Advice Ltr. 4791-E effective Apr 1 2026",
+        "ppp_per_kwh": 0.01515,
+        "nd_per_kwh": 0.00000,
+        "ctc_per_kwh": -0.00007,
+        "dwr_bc_per_kwh": 0.00000,
+        "wf_nbc_per_kwh": 0.00591,
+        "total_per_kwh": 0.02099,
+        "_why": "NEM 2.0 nets exports against imports at full retail, but these five charges survive that netting — Schedule NEM-ST SC 1 bills them on 'the kWhs consumed in each metered interval net of exports'. Only used on the NEM 2.0 path.",
+        "_relation_to_delivery": "PPP, ND and CTC are components inside UDC Total; DWR-BC and WF-NBC are added on top of it. delivery.price_per_kwh already contains all five, so the NEM 2.0 path nets against (delivery - total_per_kwh) and bills total_per_kwh separately on un-netted import.",
+        "_flat": "Identical across every season and TOU period on this schedule, so one figure covers the plan. Verified against the sheet rather than assumed — PPP is 0.01713 on EV-TOU, not 0.01515."
+      },
 
       "delivery": {
         "summer": {
@@ -435,6 +499,18 @@
       "eligibility": {
         "notes": "Requires an EV/NGV, a Rule 21 behind-the-meter storage device, or an electric heat pump. Capped at 10,000 customers. Recorded, not enforced yet."
       },
+      "nonbypassable_charges": {
+        "_source": "Schedule TOU-ELEC, UDC Rates table, Advice Ltr. 4843-E effective Jun 1 2026",
+        "ppp_per_kwh": 0.01515,
+        "nd_per_kwh": 0.00000,
+        "ctc_per_kwh": -0.00007,
+        "dwr_bc_per_kwh": 0.00000,
+        "wf_nbc_per_kwh": 0.00591,
+        "total_per_kwh": 0.02099,
+        "_why": "NEM 2.0 nets exports against imports at full retail, but these five charges survive that netting — Schedule NEM-ST SC 1 bills them on 'the kWhs consumed in each metered interval net of exports'. Only used on the NEM 2.0 path.",
+        "_relation_to_delivery": "PPP, ND and CTC are components inside UDC Total; DWR-BC and WF-NBC are added on top of it. delivery.price_per_kwh already contains all five, so the NEM 2.0 path nets against (delivery - total_per_kwh) and bills total_per_kwh separately on un-netted import.",
+        "_flat": "Identical across every season and TOU period on this schedule, so one figure covers the plan. Verified against the sheet rather than assumed — PPP is 0.01713 on EV-TOU, not 0.01515."
+      },
 
       "delivery": {
         "summer": {
@@ -494,6 +570,18 @@
       },
       "eligibility": {
         "notes": "Requires a registered BEV, PHEV, or NGV with home refueling. Recorded, not enforced yet."
+      },
+      "nonbypassable_charges": {
+        "_source": "Schedule EV-TOU-2, UDC Rates table, Advice Ltr. 4843-E effective Jun 1 2026",
+        "ppp_per_kwh": 0.01515,
+        "nd_per_kwh": 0.00000,
+        "ctc_per_kwh": -0.00007,
+        "dwr_bc_per_kwh": 0.00000,
+        "wf_nbc_per_kwh": 0.00591,
+        "total_per_kwh": 0.02099,
+        "_why": "NEM 2.0 nets exports against imports at full retail, but these five charges survive that netting — Schedule NEM-ST SC 1 bills them on 'the kWhs consumed in each metered interval net of exports'. Only used on the NEM 2.0 path.",
+        "_relation_to_delivery": "PPP, ND and CTC are components inside UDC Total; DWR-BC and WF-NBC are added on top of it. delivery.price_per_kwh already contains all five, so the NEM 2.0 path nets against (delivery - total_per_kwh) and bills total_per_kwh separately on un-netted import.",
+        "_flat": "Identical across every season and TOU period on this schedule, so one figure covers the plan. Verified against the sheet rather than assumed — PPP is 0.01713 on EV-TOU, not 0.01515."
       },
 
       "delivery": {
@@ -572,6 +660,18 @@
       "eligibility": {
         "notes": "Requires an individually metered solar energy system. Recorded, not enforced yet."
       },
+      "nonbypassable_charges": {
+        "_source": "Schedule DR-SES, UDC Rates table, Advice Ltr. 4791-E effective Apr 1 2026",
+        "ppp_per_kwh": 0.01515,
+        "nd_per_kwh": 0.00000,
+        "ctc_per_kwh": -0.00007,
+        "dwr_bc_per_kwh": 0.00000,
+        "wf_nbc_per_kwh": 0.00591,
+        "total_per_kwh": 0.02099,
+        "_why": "NEM 2.0 nets exports against imports at full retail, but these five charges survive that netting — Schedule NEM-ST SC 1 bills them on 'the kWhs consumed in each metered interval net of exports'. Only used on the NEM 2.0 path.",
+        "_relation_to_delivery": "PPP, ND and CTC are components inside UDC Total; DWR-BC and WF-NBC are added on top of it. delivery.price_per_kwh already contains all five, so the NEM 2.0 path nets against (delivery - total_per_kwh) and bills total_per_kwh separately on un-netted import.",
+        "_flat": "Identical across every season and TOU period on this schedule, so one figure covers the plan. Verified against the sheet rather than assumed — PPP is 0.01713 on EV-TOU, not 0.01515."
+      },
 
       "delivery": {
         "summer": {
@@ -632,6 +732,18 @@
       },
       "eligibility": {
         "notes": "Separately metered EV or NGV charging load. Recorded, not enforced yet."
+      },
+      "nonbypassable_charges": {
+        "_source": "Schedule EV-TOU, UDC Rates table, Advice Ltr. 4843-E effective Jun 1 2026",
+        "ppp_per_kwh": 0.01713,
+        "nd_per_kwh": 0.00000,
+        "ctc_per_kwh": -0.00007,
+        "dwr_bc_per_kwh": 0.00000,
+        "wf_nbc_per_kwh": 0.00591,
+        "total_per_kwh": 0.02297,
+        "_why": "NEM 2.0 nets exports against imports at full retail, but these five charges survive that netting — Schedule NEM-ST SC 1 bills them on 'the kWhs consumed in each metered interval net of exports'. Only used on the NEM 2.0 path.",
+        "_relation_to_delivery": "PPP, ND and CTC are components inside UDC Total; DWR-BC and WF-NBC are added on top of it. delivery.price_per_kwh already contains all five, so the NEM 2.0 path nets against (delivery - total_per_kwh) and bills total_per_kwh separately on un-netted import.",
+        "_flat": "Identical across every season and TOU period on this schedule, so one figure covers the plan. Verified against the sheet rather than assumed — PPP is 0.01713 on EV-TOU, not 0.01515."
       },
 
       "fixed_charges": {

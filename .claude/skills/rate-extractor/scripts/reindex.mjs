@@ -8,6 +8,10 @@
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+// Also the manifest's sort order: the page loads the utility file first, then
+// generation overlays, then the NEM 3.0 export price table.
+const TYPES = ["utility", "generation", "export_prices", "cities"];
+
 const dir = process.argv[2] ?? "rates";
 
 let files;
@@ -40,8 +44,8 @@ for (const f of files) {
   if (doc.effective_date && !/^\d{4}-\d{2}-\d{2}$/.test(doc.effective_date)) {
     problems.push(`${f}: effective_date must be YYYY-MM-DD, got ${JSON.stringify(doc.effective_date)}`);
   }
-  if (doc.type && doc.type !== "utility" && doc.type !== "generation") {
-    problems.push(`${f}: type must be "utility" or "generation", got ${JSON.stringify(doc.type)}`);
+  if (doc.type && !TYPES.includes(doc.type)) {
+    problems.push(`${f}: type must be one of ${TYPES.join(", ")}, got ${JSON.stringify(doc.type)}`);
   }
   const entry = {
     provider: doc.provider,
@@ -59,10 +63,10 @@ if (problems.length) {
   process.exit(1);
 }
 
-// Utility files first, then by provider, then newest effective_date first —
+// Utility file first, then generation overlays, then the export price table —
 // so the app's "most recent rates" lookup reads top-down.
 entries.sort((a, b) =>
-  (a.type === b.type ? 0 : a.type === "utility" ? -1 : 1) ||
+  TYPES.indexOf(a.type) - TYPES.indexOf(b.type) ||
   a.provider.localeCompare(b.provider) ||
   b.effective_date.localeCompare(a.effective_date));
 
