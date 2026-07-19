@@ -337,9 +337,24 @@ export function costPlan({
   // it to the cent, but neither is stated in any tariff. See rates/VALIDATION.md.
   let franchiseFeeDifferential = 0;
   if (inCityOfSanDiego && tf.franchise_fee_differential_pct) {
-    const wfNbc = 0; // already folded into this file's delivery prices
+    // The base is SDG&E's own Total Electric Charges, less PCIA and WF-NBC.
+    // Two things are therefore *not* in it:
+    //
+    //  - CCA generation. A CCA bills the commodity itself, in its own section
+    //    below SDG&E's total. Leaving it in made the base swing negative for any
+    //    exporter, since the generation line is a large credit.
+    //  - The wildfire fund charge. On the NEM 2.0 path it is billed separately
+    //    inside `nonbypassable`, so it has to come back out here; on the
+    //    non-NEM path it is folded into the delivery price instead, and is
+    //    subtracted at the same per-kWh rate off the same gross usage.
+    //
+    // Checked against the net-exporter bill: $24.60 fixed + $7.12 NBC net of
+    // wildfire = $31.72, x 5.78% = $1.83, the figure printed.
+    const wfNbcRate = plan.nonbypassable_charges?.wf_nbc_per_kwh ?? 0;
+    const wfNbc = (nemMode === "nem2" ? nbcBaseKWh : grossImportKWh) * wfNbcRate;
+    const utilityCharges = subtotal - (isCCA ? generation : 0);
     franchiseFeeDifferential =
-      (subtotal - pcia - wfNbc) * (tf.franchise_fee_differential_pct / 100);
+      (utilityCharges - pcia - wfNbc) * (tf.franchise_fee_differential_pct / 100);
     warnings.push(
       "Franchise fee differential uses a base inferred from one bill, not published in any tariff.",
     );
@@ -379,9 +394,21 @@ export function costPlan({
   let monthsInCredit = 0;
   if (nemMode !== "none") {
     ({ unusedCredit, monthsInCredit } = settleMonthlyCredits(byMonth));
-    if (total < 0) {
-      unusedCredit = Math.max(unusedCredit, -total);
-      total = 0;
+    // Generation credits cannot reach the Base Services Charge or the
+    // non-bypassable charges. A net exporter's bill is exactly those two lines,
+    // and SDG&E's own Net Energy Metering Summary says so: it prints the whole
+    // remaining balance under the heading "Non-Bypassable Charges".
+    //
+    // Checked against a net-exporter bill: 31 days, -831 kWh, 472 kWh of NBC
+    // usage. $24.60 Base Services + $7.12 NBC + $2.79 Wildfire Fund = $34.51,
+    // and the franchise fees below it ($1.83 + $0.19) were cancelled to the cent
+    // by an Applied Generation Credit — so fees are offsettable and these two
+    // are not. Flooring at `fixed` alone under-billed that account by $9.91.
+    const nonOffsettable = fixed + nonbypassable;
+    const offsettable = total - nonOffsettable;
+    if (offsettable < 0) {
+      unusedCredit = Math.max(unusedCredit, -offsettable);
+      total = nonOffsettable;
     }
     if (unusedCredit > 0) {
       notes.push(
@@ -395,7 +422,15 @@ export function costPlan({
     }
   }
 
-  // Minimum bill, where the plan has one.
+  // Minimum bill, where the plan has one — only EV-TOU still does. Every other
+  // residential schedule replaced it with the Base Services Charge above.
+  //
+  // KNOWN WRONG, deliberately: the tariff applies this per billing cycle, and
+  // this compares it against the whole period, so a light month cannot be
+  // rescued by the heavy month beside it. Fixing it needs per-month charge
+  // totals, which the season-bucketed accumulation above does not carry. It
+  // only ever bites on EV-TOU, which is separately metered and already unsafe
+  // to rank against a whole-home export.
   const minimumBill = (fixedSpec.minimum_bill_daily ?? 0) * days;
   const totalAfterMinimum = Math.max(total, minimumBill);
   if (totalAfterMinimum > total) {

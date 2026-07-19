@@ -275,6 +275,38 @@ check("nem2: net generator earns no baseline credit", generator.lines.baselineCr
 check("nem2: bill never goes negative", generator.total >= 0, true);
 check("nem2: leftover credit is reported, not paid", generator.unusedCredit > 0, true);
 
+// The Base Services Charge is non-bypassable — SDG&E bills it in the
+// Non-Bypassable Charges section of a NEM statement and says outright that
+// generation credits cannot offset it. So a net exporter's floor is that
+// charge, never $0, however much they send back.
+check("nem2: net generator still owes the full Base Services Charge",
+  generator.total, generator.lines.fixed, 1e-9);
+check("nem2: and that floor is a real charge, not zero", generator.lines.fixed > 0, true);
+const bigGenerator = nem2(solarDay(0.05, 5));
+check("nem2: exporting ten times as much does not lower the floor",
+  bigGenerator.total, generator.total, 1e-9);
+check("nem2: it shows up as leftover credit instead",
+  bigGenerator.unusedCredit > generator.unusedCredit, true);
+
+// Every interval above both imports and exports, so the per-interval net is
+// always negative and the NBC base is zero — which hides the other half of the
+// floor. Give the day some import-only intervals and the exporter owes non-
+// bypassable charges too, and credits cannot reach those either.
+//
+// Confirmed against a net-exporter bill: 31 days, -831 kWh, every delivery and
+// generation line $0.00, and Total Electric Charges of $34.51 made up of
+// $24.60 Base Services + $9.91 of NBCs. Flooring at the fixed charge alone
+// under-billed that account by the whole $9.91.
+const mixedGenerator = nem2(
+  solarDay(0.05, 5).map((iv, i) => (i % 8 === 0 ? { ...iv, generationKWh: 0, netKWh: iv.kWh } : iv)),
+);
+check("nem2: an exporter with importing intervals still owes NBCs",
+  mixedGenerator.lines.nonbypassable > 0, true);
+check("nem2: and the floor is the fixed charge plus those NBCs",
+  mixedGenerator.total, mixedGenerator.lines.fixed + mixedGenerator.lines.nonbypassable, 1e-9);
+check("nem2: which is strictly more than the fixed charge alone",
+  mixedGenerator.total > mixedGenerator.lines.fixed, true);
+
 // PCIA follows the NBC base, not gross usage: an hour of surplus does not earn
 // the exit fee back. Every interval here both imports and exports, so gross
 // import (38.4) and import-net-of-export (28.8) are different numbers — if they

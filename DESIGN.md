@@ -281,6 +281,31 @@ A battery is the same transformation with memory, so it does get its own module 
 
 The model has no degradation, no standby loss, no outage-backup reserve beyond a fixed floor, and no demand-response revenue.
 
+### Splitting a two-meter household
+
+`EV-TOU` is the one residential schedule that serves a *second* meter — a separately metered EV charger, per Special Condition 2. That breaks an assumption the rest of the calculator rests on: that the imported file describes everything the customer is billed for.
+
+Today the plan is gated behind a checkbox, and when shown it is costed by running the whole-home series through it. That is still wrong, just no longer wrong by default: a real EV-TOU customer's bill is two bills. The house sits on a whole-home schedule and only the charger sits on EV-TOU.
+
+Costing it properly is a **composite**, and the pieces already exist:
+
+```text
+total = costPlan(house series minus EV load, whole-home plan)
+      + costPlan(EV load alone,             ev-tou)
+```
+
+The EV load comes from the profiles that already ship (`ev-overnight`, `ev-evening`, `ev-midday`) scaled to an annual kWh the user gives, and `applyLoadProfile` can subtract it with `kind: "generation"` — the same sign flip solar uses. So no new engine is needed; what is needed is a **plan that is a pair of plans**, which the schema has no shape for today.
+
+Three things make it more than a refactor, and are why it is written down rather than built:
+
+- **Which whole-home plan pairs with it?** The answer is "whichever is cheapest for the remaining house load", so the comparison becomes a search over pairs rather than a list of plans, and the ranking table stops being one row per plan.
+- **The split is a guess.** Subtracting a synthetic profile from measured data assumes the charging pattern, and it can drive the house series negative in hours where the guess exceeds what the meter recorded. That has to clamp, and a clamp means the two halves no longer reconcile to the original.
+- **The second meter has its own fixed charges**, so the pair is not just two energy calculations added together.
+
+There is also nothing to check a composite against — no EV-TOU bill is available, and the whole engine's credibility rests on reconciling against real bills. Replacing a visibly rough single-meter number with an elaborate unverifiable one would move it into the same trust category as the ESPI parser while *looking* more authoritative.
+
+So the position taken is: hide the plan unless the user asserts the meter exists, and say plainly in the page's caveats that its total is a single-meter approximation checked against no bill.
+
 ## Rate extractor
 
 An **occasional offline LLM skill** (`.claude/skills/`), run by hand when rates change. Not part of the deployed site, not a runtime feature.
@@ -333,7 +358,17 @@ SDG&E publishes the full table under CPUC Resolution E-5301 as a MIDAS upload �
 
 Neither CCA publishes its own export curve. Both state they use SDG&E's values and pay a flat adder on top — SDCP $0.0075/kWh, CEA $0.01/kWh — carried as `nbt_generation_adder_per_kwh` in each overlay.
 
-**Not modelled: the annual true-up.** Credits carry month to month, but a customer ending the period in credit is not paid it in cash; they receive Net Surplus Compensation at a wholesale rate that is DLAP-indexed for SDG&E and CAISO-indexed for SDCP and varies hourly. CEA publishes a flat $0.06/kWh, but paying out for one provider and not the others would bias the comparison, so the bill floors at zero and the leftover is reported in kWh instead.
+**Not modelled: the annual true-up.** Credits carry month to month, but a customer ending the period in credit is not paid it in cash; they receive Net Surplus Compensation at a wholesale rate that is DLAP-indexed for SDG&E and CAISO-indexed for SDCP and varies hourly. CEA publishes a flat $0.06/kWh, but paying out for one provider and not the others would bias the comparison, so the bill floors and the leftover is reported instead.
+
+**The floor is not zero, and it is not the fixed charge either.** Two lines survive generation credits: the Base Services Charge ($0.79343/day, ~$24/month), and the non-bypassable charges billed on whatever was imported. Both appear in the Non-Bypassable Charges section of a NEM statement, and SDG&E states plainly that the first is "not eligible to be offset by generation credits".
+
+A net-exporter reference bill settles it directly. 31 days, −831 kWh, and every delivery and generation line on the statement reads $0.00 — so its Total Electric Charges *is* the floor, and it is $34.51: $24.60 of Base Services plus $9.91 of non-bypassable charges on the 472 kWh that did cross the meter the wrong way. Below that line the bill charged $1.83 of franchise fee differential and $0.19 of equivalent surcharge, then cancelled both to the cent with an Applied Generation Credit of $2.02 — direct evidence that fees *are* offsettable and these two are not.
+
+The engine first floored at the fixed charge alone, which under-billed that account by the whole $9.91 a month. The bill is now the third known-answer check in `tools/verify.mjs`; it is the only one of the three that pins this, because the other two are net importers whose floor never binds.
+
+One consequence shapes the UI: because the Base Services Charge is identical on every schedule that carries it, a net exporter's plans tie closely on total, and the ranking falls back to leftover credit to say anything at all. That credit is shown as credit and never folded into the total — it settles at wholesale Net Surplus rates, not retail.
+
+`EV-TOU` is the sole exception, carrying a minimum bill instead of the Base Services Charge, which makes it the only plan that escapes the floor. It is also separately metered and already flagged as not comparable — but that is now the reason it tops the ranking for any exporter, so the two facts have to be read together.
 
 ## Deferred
 

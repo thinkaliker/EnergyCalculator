@@ -45,7 +45,7 @@ All prices in **dollars per kWh**, not cents, not $/MWh. Tariff documents publis
     {
       "id": "tou-dr1",
       "name": "TOU-DR1",
-      "eligibility": { "notes": "recorded, not enforced yet" },
+      "eligibility": { "notes": "recorded, not enforced yet", "separate_meter_required": false },
       "delivery": {
         "summer": {
           "weekday": [{ "start_hour": 0, "end_hour": 24, "price_per_kwh": 0.0 }],
@@ -107,6 +107,8 @@ Optional overlay fields:
 **Where a CCA publishes several products as a base table plus flat adders, generate the derived files rather than transcribing them**, and say so in `_notes.derived`. Nine near-identical hand-typed files is nine chances at a typo.
 
 Note the sign difference between the two credit fields. `generation_credit_per_kwh` reduces what the customer is charged and is stored negative; `nbt_generation_adder_per_kwh` increases what they are paid for exports and is stored positive. The validator enforces both, because a sign slip in either direction produces a plausible-looking bill.
+
+`eligibility.notes` is recorded for humans and not enforced. `eligibility.separate_meter_required` **is** enforced: the calculator hides the plan unless the user confirms the second meter exists. Set it only where the schedule serves a meter other than the whole-home one — today that is `EV-TOU` alone. It is not a "hard to qualify for" flag; it means the usage file cannot describe this plan's load at all.
 
 ## Non-bypassable charges — per plan in the base utility file
 

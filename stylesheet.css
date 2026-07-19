@@ -136,6 +136,21 @@ h1 em { font-style: normal; color: var(--accent); }
   font-weight: 600;
 }
 
+/* The nav sits at the foot of a step and only appears once the step it points at
+   exists, so it reads as "you've done enough here" rather than as a submit
+   button that might skip something. */
+.step-nav {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.step-nav .btn::after {
+  content: " ↓";
+  font-size: 0.9em;
+}
+
 .hidden { display: none !important; }
 
 /* --- dropzone ---------------------------------------------------------- */
@@ -268,15 +283,43 @@ tbody tr:hover { background: var(--surface-2); }
 /* Only the ranking rows do anything when clicked; a pointer on the provider
    table would promise an interaction that isn't there. */
 #ranking tbody tr { cursor: pointer; }
+/* Two independent facts, so two independent cues: the star and green tint mean
+   "cheapest", the blue rail and tint mean "this is the one you picked". A row is
+   often both, so neither may depend on the other being absent to read. */
+tbody tr.best { background: var(--good-soft); }
 tbody tr.selected { background: var(--accent-soft); }
+tbody tr.selected td:first-child { box-shadow: inset 3px 0 var(--accent); }
+tbody tr.best.selected {
+  background: linear-gradient(90deg, var(--good-soft), var(--accent-soft) 55%);
+}
 tbody tr.best td:first-child::before {
   content: "★";
   color: var(--good);
   margin-right: 6px;
 }
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 0.83rem;
+  color: var(--text-dim);
+  margin: 10px 0 0;
+}
+.legend .swatch {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: baseline;
+}
+.legend .swatch.best { background: var(--good-soft); border: 1px solid var(--good); }
+.legend .swatch.selected { background: var(--accent-soft); border: 1px solid var(--accent); }
 td .plan-sub { display: block; font-size: 0.78rem; color: var(--text-dim); }
 td.total { font-weight: 650; }
 .delta { color: var(--text-dim); }
+/* A credit gap is not dollars owed, so it does not get the tabular-number
+   treatment the money columns have. */
+.credit-gap { font-family: inherit; font-size: 0.78rem; }
 
 .footnote { font-size: 0.83rem; color: var(--text-dim); margin: 12px 0 0; }
 

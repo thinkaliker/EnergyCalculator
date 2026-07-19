@@ -31,7 +31,7 @@ const check = (name, cond, detail = "") => {
  * records: the import and export channels are separate, and the meter never
  * sees the energy the house consumed straight off its own roof.
  */
-function syntheticCsv({ solar = false } = {}) {
+function syntheticCsv({ solar = false, exportScale = 1 } = {}) {
   const rows = [
     "Name,Test", "Address,Somewhere",
     "Meter Number,Date,Start Time,Duration,Consumption,Generation,Net",
@@ -45,7 +45,9 @@ function syntheticCsv({ solar = false } = {}) {
       const kwh = hour >= 16 && hour < 21 ? 0.42 : hour < 6 ? 0.08 : 0.18;
       // Midday export, tapering either side of noon — enough to matter without
       // making the household a net generator over the period.
-      const exported = solar && hour >= 9 && hour < 16 ? 0.35 : 0;
+      // exportScale > 1 turns the same household into a net generator, which is
+      // a different case entirely: the bill floors at zero rather than shrinking.
+      const exported = solar && hour >= 9 && hour < 16 ? 0.35 * exportScale : 0;
       const imported = solar && exported > 0 ? 0.02 : kwh;
       const mer = hour < 12 ? "AM" : "PM";
       const h12 = hour % 12 === 0 ? 12 : hour % 12;
@@ -71,6 +73,23 @@ async function importCsv(win, doc, text) {
   await waitFor(() => doc.querySelectorAll("#ranking tbody tr").length > 0);
   await settle(150);
 }
+
+/**
+ * Ranking rows sharing the cheapest total. For a net exporter that is a group,
+ * not a row: generation credits cancel everything they are allowed to cancel and
+ * several plans land on the same non-bypassable Base Services Charge.
+ */
+/** Dollars out of a table cell, so two money columns can be compared as numbers. */
+const money = (cell) => Number(cell.textContent.replace(/[^0-9.-]/g, ""));
+
+const tiedRows = (doc) => {
+  const groups = new Map();
+  for (const r of doc.querySelectorAll("#ranking tbody tr")) {
+    const total = r.cells[5].textContent.trim();
+    groups.set(total, [...(groups.get(total) ?? []), r]);
+  }
+  return [...groups.values()].sort((a, b) => b.length - a.length)[0] ?? [];
+};
 
 const cheapestTotal = (doc) =>
   parseFloat(doc.querySelector("#ranking tbody tr").cells[5].textContent.replace(/[$,]/g, ""));
@@ -115,6 +134,11 @@ async function run() {
     doc.getElementById("provider").options.length >= 4,
     `${doc.getElementById("provider").options.length} options`);
   check("city select populated", doc.getElementById("city").options.length > 10);
+  // Before a file is loaded there is nothing downstream to jump to, so every
+  // next button stays hidden rather than scrolling to an empty step.
+  check("no next button before a file is loaded",
+    [...doc.querySelectorAll(".step-nav")].every((n) => n.classList.contains("hidden")),
+    `${doc.querySelectorAll(".step-nav:not(.hidden)").length} visible`);
   check("city defaults to San Diego", doc.getElementById("city").value, "San Diego");
   check("city note states the franchise fee",
     /franchise fee 6\.88%/i.test(doc.getElementById("city-note").textContent),
@@ -158,6 +182,32 @@ async function run() {
   });
   check("every chart has plotted data points", counts.every((n) => n > 0),
     canvases.map((c, i) => `${c.id}=${counts[i]}`).join(" "));
+  // --- separately metered EV charger ---------------------------------------
+  // EV-TOU prices a second meter the usage file knows nothing about, so it is
+  // hidden until the user says that meter exists — and hidden *with a reason*,
+  // since a silently shorter table reads as the full set of options.
+  const planNames = () => [...doc.querySelectorAll("#ranking tbody tr")]
+    .map((r) => r.cells[0].textContent).join(" | ");
+  check("EV-TOU is hidden by default", !/EV-TOU\b(?!-)/.test(planNames()), planNames());
+  check("and the table says why it is missing",
+    /separately metered/i.test(doc.getElementById("excluded-note").textContent),
+    doc.getElementById("excluded-note").textContent.trim().slice(0, 120));
+  const evMeter = doc.getElementById("separate-ev-meter");
+  evMeter.checked = true;
+  evMeter.dispatchEvent(new win.Event("change"));
+  await waitFor(() => /EV-TOU\b(?!-)/.test(planNames()));
+  check("ticking the box brings EV-TOU back", /EV-TOU\b(?!-)/.test(planNames()), planNames());
+  evMeter.checked = false;
+  evMeter.dispatchEvent(new win.Event("change"));
+  await waitFor(() => !/EV-TOU\b(?!-)/.test(planNames()));
+  check("unticking hides it again", !/EV-TOU\b(?!-)/.test(planNames()), planNames());
+  // Hiding it by default is not the whole answer — anyone who ticks the box gets
+  // a single-meter approximation checked against no bill, and the page has to
+  // say so somewhere permanent rather than only at the moment of exclusion.
+  check("the caveats admit EV-TOU is priced as one meter",
+    /EV-TOU is priced as one meter/.test(doc.getElementById("caveats").textContent),
+    doc.getElementById("caveats").textContent.slice(0, 80));
+
   const providerChart = win.Chart.getChart(doc.getElementById("chart-providers"));
   check("provider chart compares more than one provider",
     providerChart && providerChart.data.labels.length > 1,
@@ -351,6 +401,51 @@ async function run() {
     const offered = [...doc.getElementById("provider").options].length;
     return provRows().length === offered;
   })(), `${provRows().length} rows`);
+  check("provider table marks the cheapest row, and only it",
+    provRows().filter((r) => r.classList.contains("best")).length === 1,
+    provRows().map((r) => r.className || "-").join(" | "));
+  check("the cheapest provider row is the first one",
+    provRows()[0].classList.contains("best"), provRows()[0].className);
+  check("provider table marks the provider selected in step 2",
+    provRows().filter((r) => r.classList.contains("selected")).length === 1,
+    provRows().map((r) => r.className || "-").join(" | "));
+
+  // --- row highlighting in the plan ranking --------------------------------
+  const rankRows = () => [...doc.querySelectorAll("#ranking tbody tr")];
+  check("ranking marks exactly one cheapest row",
+    rankRows().filter((r) => r.classList.contains("best")).length === 1,
+    rankRows().map((r) => r.className || "-").join(" | "));
+  check("ranking marks exactly one selected row",
+    rankRows().filter((r) => r.classList.contains("selected")).length === 1,
+    rankRows().map((r) => r.className || "-").join(" | "));
+  // Clicking a dearer row must move the blue highlight without moving the star:
+  // "cheapest" and "what you're looking at" are separate facts.
+  const dearer = rankRows().at(-1);
+  const dearerPlan = dearer.dataset.plan;
+  const starredPlan = rankRows().find((r) => r.classList.contains("best")).dataset.plan;
+  dearer.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  await settle(500);
+  check("clicking a row moves the selection highlight to it",
+    rankRows().find((r) => r.classList.contains("selected"))?.dataset.plan === dearerPlan,
+    dearerPlan);
+  check("the star stays on the cheapest plan, not on the row you clicked",
+    rankRows().find((r) => r.classList.contains("best"))?.dataset.plan === starredPlan,
+    starredPlan);
+  // Put the selection back on the cheapest plan so the scenario checks below
+  // start from the same state they were written against.
+  rankRows().find((r) => r.dataset.plan === starredPlan)
+    .dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  await settle(500);
+
+  // --- step navigation -----------------------------------------------------
+  const nav = (id) => doc.querySelector(`[data-next="${id}"]`).closest(".step-nav");
+  check("next buttons appear once their target step exists",
+    !nav("step-setup").classList.contains("hidden") &&
+    !nav("step-results").classList.contains("hidden"), "");
+  doc.querySelector('[data-next="step-results"]').click();
+  await settle(200);
+  check("clicking next focuses the step it names",
+    doc.activeElement?.id === "step-results", doc.activeElement?.id ?? "none");
 
   // A city with no CCA has nothing to compare against, so the block hides
   // rather than showing a one-row table with a "vs cheapest" of zero.
@@ -411,6 +506,66 @@ async function run() {
 
   setSelect(win, doc, "battery", "");
   await settle(300);
+
+  // --- net exporter: plans tie on the non-bypassable floor -------------------
+  // A household that exports more than it imports cancels every charge credits
+  // are allowed to cancel, and lands on the Base Services Charge — the same
+  // figure on every plan that carries it. The totals column then stops
+  // distinguishing them, so the ranking falls back to the credit left over, and
+  // that has to stay labelled as credit: it settles at a wholesale rate, not the
+  // retail one the totals are in.
+  //
+  // Scale 8 is what it takes for midday export credit to outweigh evening peak
+  // import on this shape — NEM 2.0 nets inside a TOU period, so cheap midday
+  // kWh do not cancel expensive evening kWh one for one.
+  await importCsv(win, doc, syntheticCsv({ solar: true, exportScale: 8 }));
+  setSelect(win, doc, "nem", "nem2");
+  await waitFor(() => tiedRows(doc).length > 1);
+  const tied = tiedRows(doc);
+  check("a net exporter ties several plans on the same floor", tied.length > 1,
+    `${tied.length} rows at ${tied[0].cells[5].textContent.trim()}`);
+  // The floor is neither $0 nor the fixed charge: credits also cannot reach the
+  // non-bypassable charges on whatever was imported. A net-exporter reference
+  // bill prints exactly that sum as its Total Electric Charges — see
+  // tools/verify.mjs — so the total must sit strictly above the fixed column.
+  check("that floor is the Base Services Charge, not $0",
+    !/^\$0\.00$/.test(tied[0].cells[5].textContent.trim()), tied[0].cells[5].textContent.trim());
+  check("and it clears the fixed charge, because NBCs are not offsettable either",
+    money(tied[0].cells[5]) > money(tied[0].cells[3]),
+    `total ${tied[0].cells[5].textContent.trim()} vs fixed ${tied[0].cells[3].textContent.trim()}`);
+  check("tied rows still report their leftover credit",
+    tied.every((r) => /credit left over/.test(r.cells[0].textContent)),
+    tied.map((r) => r.cells[0].textContent.trim().split("\n").pop()).join(" | "));
+  check("only one row is starred even when the totals tie",
+    [...doc.querySelectorAll("#ranking tbody tr.best")].length === 1,
+    `${doc.querySelectorAll("#ranking tbody tr.best").length} starred`);
+  // Within a tie the credit is the whole ranking, so it must be ordered by it.
+  check("tied rows are ordered by leftover credit, most first", (() => {
+    const credit = (r) => Number(r.cells[0].textContent.match(/\$([\d,.]+) credit left over/)?.[1]
+      .replace(/,/g, "") ?? 0);
+    return tied.every((r, i) => i === 0 || credit(r) <= credit(tied[i - 1]));
+  })(), tied.map((r) => r.cells[0].textContent.match(/\$[\d,.]+ credit/)?.[0]).join(" | "));
+  // The credit-gap fallback needs rows tied with the *overall* cheapest, which
+  // the plan ranking does not give here: EV-TOU has no Base Services Charge, so
+  // it undercuts the tie group on its own. Every row of the provider table is
+  // the same plan, so those do all land on the same floor.
+  // TOU-DR1 specifically: the ranking's own cheapest row here is EV-TOU, which
+  // carries a minimum bill instead of the Base Services Charge and so does not
+  // floor with the others.
+  setSelect(win, doc, "city", "Chula Vista");
+  await waitFor(() => !doc.getElementById("provider-table-wrap").classList.contains("hidden"));
+  [...doc.querySelectorAll("#ranking tbody tr")].find((r) => r.dataset.plan === "tou-dr1")
+    .dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  await waitFor(() => /TOU-DR1/.test(doc.getElementById("provider-table-plan").textContent));
+  const provTied = [...doc.querySelectorAll("#provider-table tbody tr")];
+  // Not every provider reaches the floor — bundled SDG&E credits exports less
+  // generously, so it can still owe more than the Base Services Charge.
+  check("providers whose credits cover the bill land on the same floor",
+    provTied.filter((r) => r.cells[5].textContent.trim() === provTied[0].cells[5].textContent.trim())
+      .length > 1,
+    provTied.map((r) => r.cells[5].textContent.trim()).join(" "));
+  check("vs-cheapest falls back to the credit gap rather than a row of dashes",
+    /less credit/.test(provTied[1].cells[6].textContent), provTied[1].cells[6].textContent.trim());
 
   check("no uncaught errors during the run", errors.length === 0, errors.join(" | "));
 

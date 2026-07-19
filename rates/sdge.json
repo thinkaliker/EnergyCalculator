@@ -14,7 +14,7 @@
       "day_types.holidays is empty — the observed-holiday list is not in this schedule. Known so far from bill validation: Juneteenth (Jun 19) is NOT observed. See rates/VALIDATION.md.",
       "PCIA is vintaged by the year the customer left bundled service — 2009-2026 span 0.01538-0.05055, a 3x range. pcia_per_kwh defaults to the 2026 vintage; the calculator needs a vintage selector or most CCA comparisons will be wrong.",
       "Whether CTC is owed on top of delivery by CCA customers is UNRESOLVED — see cca_adders._formula. This is the largest remaining correctness risk in this file.",
-      "fixed_charges.minimum_bill_daily omitted at file level — no minimum bill line appears on the TOU schedules. EV-TOU does have one and carries its own fixed_charges block."
+      "fixed_charges.minimum_bill_daily omitted at file level — confirmed against the current Total Rates Tables (Schedule DR effective 6/1/2026, TOU-DR1/TOU-DR/TOU-DR2/DR-SES/EV-TOU-5/TOU-ELEC effective 1/1/2026): every one carries a Base Services Charge row of $0.79343/day and NO Minimum Bill row. The $0.329/day minimum bill still findable on sdge.com at /sites/default/files/elec_elec-scheds_*.pdf is Advice Ltr. 3167-E, effective Jan 1 2018 — those files are eight years stale and must not be used. EV-TOU is the exception and carries its own fixed_charges block."
     ],
 
     "schedules_not_modeled": {
@@ -25,6 +25,8 @@
   },
 
   "fixed_charges": {
+    "_source": "Base Services Charge, Total Rates Table for Schedule DR effective 6/1/2026 and TOU-DR1 effective 1/1/2026. Identical $0.79343/day on every residential schedule except EV-TOU.",
+    "_nem": "Non-bypassable. SDG&E: 'The Base Services Charge is a non-bypassable charge not eligible to be offset by generation credits', and it appears in the Non-Bypassable Charges section of a NEM statement (sdge.com/electric-billing). cost.js floors a NEM bill at this charge rather than at zero.",
     "daily_service_charge": 0.79343,
     "daily_service_charge_drah": 0.39688,
     "daily_service_charge_fera": 0.39688,
@@ -728,10 +730,13 @@
         "separate_meter": "EV-TOU requires the EV charging load to be SEPARATELY METERED from the house (Special Condition 2). It is not a whole-home schedule, so ranking it against a whole-home Green Button export is meaningless — the export covers the house meter, not the EV meter. Exclude it from the default comparison, or label it clearly.",
         "delivery": "UDC 0.37721 on/off-peak and 0.22056 super-off-peak, each + WF-NBC 0.00591.",
         "fixed_charges": "No Base Services Charge on this schedule — it has a minimum bill of $0.413/day instead. The file-level fixed_charges block does NOT apply here; see this plan's own fixed_charges.",
+        "fixed_charges_unconfirmed": "RE-CHECK. SDG&E publishes no current Total Rates Table for EV-TOU alongside the other residential schedules, so the $0.413 could not be re-confirmed on 2026-07-19. The stale 2018 schedule PDF shows $0.329, which is the pre-Base-Services-Charge figure for every schedule and is NOT evidence against $0.413. Verify against Sheet 64812-E on the tariff portal before trusting it.",
         "shared_generation": "Same EECC as EV-TOU-5 / EV-TOU-2 / DR-SES."
       },
       "eligibility": {
-        "notes": "Separately metered EV or NGV charging load. Recorded, not enforced yet."
+        "notes": "Separately metered EV or NGV charging load. Special Condition 2.",
+        "separate_meter_required": true,
+        "_why_enforced": "Unlike the other eligibility notes, this one is enforced: the plan is priced against a meter the usage file does not describe, so its total is not merely optimistic, it is answering a different question. It is also the only residential schedule with no Base Services Charge, which makes it the cheapest row on the table for any net exporter."
       },
       "nonbypassable_charges": {
         "_source": "Schedule EV-TOU, UDC Rates table, Advice Ltr. 4843-E effective Jun 1 2026",

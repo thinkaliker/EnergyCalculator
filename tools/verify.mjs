@@ -72,6 +72,46 @@ const NEM_BILL = {
 };
 
 // ---------------------------------------------------------------------------
+// Third reference bill: a NEM 2.0 account that exports far more than it imports.
+//
+// SDCP PowerOn customer on EV-TOU-5, coastal, 2021 vintage, City of San Diego,
+// 31 days ending Jun 29 2026. Net -831 kWh, and every delivery and generation
+// line on the bill prints $0.00 — the whole bill is the two charges credits
+// cannot touch.
+//
+// This is what established that the credit floor is the Base Services Charge
+// *plus* the non-bypassable charges, not the Base Services Charge alone. The
+// franchise fees below the line ($1.83 + $0.19) were cancelled to the cent by an
+// Applied Generation Credit, which is the direct evidence that fees are
+// offsettable and these two are not.
+// ---------------------------------------------------------------------------
+const EXPORTER_BILL = {
+  plan: "ev-tou-5",
+  overlay: "rates/cca-sdcp-2021v-poweron.json",
+  pciaVintage: 2021,
+  climateZone: "coastal",
+  inCityOfSanDiego: true,
+  from: "2026-05-30",
+  to: "2026-06-29",
+  days: 31,
+  netKWh: -831,
+  baseServicesCharge: 24.60,
+  delivery: 0,
+  nonbypassable: 7.12 + 2.79,
+  // The CCA prints each TOU bucket as a credit and sums them into "Credited to
+  // NEM Balance", so this line is checkable against a positive printed figure.
+  ccaGeneration: -125.99,
+  totalElectricCharges: 34.51,
+  // Printed below the total and then cancelled by an Applied Generation Credit,
+  // so it never reaches this bill's total — but it is the only known answer we
+  // have for the differential's base, which no other reference bill pins.
+  franchiseFeeDifferential: 1.83,
+  // From the Net Energy Metering Summary, which totals the whole bill period
+  // rather than splitting it by season the way the charge detail does.
+  touByMonth: [["2026-05-30", "2026-06-29", { On: -171, Off: -364, Super: -296 }]],
+};
+
+// ---------------------------------------------------------------------------
 // The reference bill. SDCP customer on EV-TOU-5, 2021 PCIA vintage,
 // 29 days ending Jun 25 2026, 450 kWh.
 // ---------------------------------------------------------------------------
@@ -95,10 +135,26 @@ const WF_NBC = 0.00591;
 
 const { intervals, warnings, meta } = parseIntervals(readFileSync(csvPath, "utf8"));
 
-// Two reference bills, two different accounts. Pick by what the file contains
-// rather than by a flag — only one of them has an export channel.
+// Three reference bills, three different accounts. Pick by what the file
+// contains rather than by a flag: an export channel says it is one of the two
+// solar accounts, and the net kWh over each bill's own window says which — the
+// two differ by a factor of five there, so there is no ambiguity to resolve.
 if (intervals.some((iv) => iv.generationKWh > 0)) {
-  verifyNem2(intervals, meta, warnings);
+  const netOver = (B) => {
+    let net = 0;
+    let n = 0;
+    for (const iv of intervals) {
+      const k = localDateKey(iv.start);
+      if (k >= B.from && k <= B.to) { net += iv.kWh - iv.generationKWh; n++; }
+    }
+    return n ? net : NaN;
+  };
+  const match = [NEM_BILL, EXPORTER_BILL].find((B) => Math.abs(netOver(B) - B.netKWh) < 5);
+  if (!match) {
+    console.error("This export has solar but matches neither NEM reference bill's window and net kWh.");
+    process.exit(2);
+  }
+  verifyNem2(intervals, meta, warnings, match);
 }
 
 const result = costPlan({
@@ -197,8 +253,7 @@ process.exit(failed ? 1 : 0);
  * Exits the process — this is a whole second verification run, not a section of
  * the first, because it uses a different account on a different schedule.
  */
-function verifyNem2(allIntervals, srcMeta, srcWarnings) {
-  const B = NEM_BILL;
+function verifyNem2(allIntervals, srcMeta, srcWarnings, B) {
   const inPeriod = (from, to) =>
     allIntervals.filter((iv) => {
       const k = localDateKey(iv.start);
@@ -227,6 +282,10 @@ function verifyNem2(allIntervals, srcMeta, srcWarnings) {
   const flatDelivery = utility.plans.find((p) => p.id === B.plan)
     .delivery.summer.weekday[0].price_per_kwh;
 
+  // Each bill prints a different subset of lines — the net exporter's delivery
+  // and generation detail is all zeroes and it is charged no PCIA or state fee,
+  // because those ride on import it does not have. Check what the bill states
+  // and skip what it does not, rather than inventing an expectation for it.
   const checks = [
     ["Days in period", r.days, B.days, 0],
     ["Net kWh (total usage)", r.totalKWh, B.netKWh, 1],
@@ -236,10 +295,15 @@ function verifyNem2(allIntervals, srcMeta, srcWarnings) {
     ["Electricity Delivery", r.lines.delivery, B.delivery, 0.75],
     ["Non-Bypassable Charges", r.lines.nonbypassable, B.nonbypassable, 0.05],
     ["CCA Generation", r.lines.generation, B.ccaGeneration, 0.25],
-    ["PCIA (2022 vintage)", r.lines.pcia, B.pcia, 0.10],
+    [`PCIA (${B.pciaVintage} vintage)`, r.lines.pcia, B.pcia, 0.10],
     ["State Regulatory Fee", r.lines.stateRegulatoryFee, B.stateRegulatoryFee, 0.02],
     ["Franchise Fee Equivalent", r.lines.franchiseFeeEquivalent, B.franchiseFeeEquivalent, 0.05],
-  ];
+    ["Franchise Fee Differential", r.lines.franchiseFeeDifferential, B.franchiseFeeDifferential, 0.02],
+    // Only the exporter bill states this directly: with every volumetric line at
+    // zero, its Total Electric Charges *is* the credit floor, so this single
+    // number is the whole known-answer check for what credits cannot offset.
+    ["Total Electric Charges", r.total, B.totalElectricCharges, 0.05],
+  ].filter(([, , want]) => want != null);
 
   let failed = 0;
   const w = 30;
@@ -290,11 +354,13 @@ function verifyNem2(allIntervals, srcMeta, srcWarnings) {
 
   for (const warn of srcWarnings) console.log(`\nWARN ${warn}`);
   for (const warn of r.warnings) console.log(`WARN ${warn}`);
-  console.log(
-    "\nNot checked here: the Baseline Adjustment Credit, which the bill applied to " +
-    "144 kWh where every base we can derive gives 156. Recorded in README under " +
-    "\"Needs verifying\".",
-  );
+  if (B.baselineAllowanceKWh != null) {
+    console.log(
+      "\nNot checked here: the Baseline Adjustment Credit, which the bill applied to " +
+      "144 kWh where every base we can derive gives 156. Recorded in README under " +
+      "\"Needs verifying\".",
+    );
+  }
   console.log(failed ? `\nFAIL — ${failed} check(s) outside tolerance` : "\nPASS — all checks within tolerance");
   process.exit(failed ? 1 : 0);
 }

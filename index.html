@@ -63,6 +63,10 @@
       </div>
       <div id="period-notes"></div>
     </div>
+
+    <div class="step-nav hidden">
+      <button class="btn primary" data-next="step-setup">Next: your situation</button>
+    </div>
   </section>
 
   <!-- Step 2 ------------------------------------------------------------ -->
@@ -112,6 +116,14 @@
         <select id="city"></select>
         <small id="city-note">Sets your franchise fee and which providers serve you.</small>
       </label>
+      <label class="check">
+        <input type="checkbox" id="separate-ev-meter">
+        <span>Separately metered EV charger<small>Only tick this if your charger has its own meter and its own bill. EV-TOU needs one.</small></span>
+      </label>
+    </div>
+
+    <div class="step-nav hidden">
+      <button class="btn primary" data-next="step-results">Next: what each plan costs</button>
     </div>
   </section>
 
@@ -141,6 +153,10 @@
         <tbody></tbody>
       </table>
     </div>
+    <p class="legend">
+      <span><span class="swatch best"></span>★ Cheapest for your usage</span>
+      <span><span class="swatch selected"></span>Charted below</span>
+    </p>
     <p class="footnote" id="excluded-note"></p>
     <p class="footnote">
       Cost is for the selected period only, never annualized. Click a row to see
@@ -169,6 +185,10 @@
           <tbody></tbody>
         </table>
       </div>
+      <p class="legend">
+        <span><span class="swatch best"></span>★ Cheapest provider</span>
+        <span><span class="swatch selected"></span>The one you selected in step 2</span>
+      </p>
       <p class="footnote">
         Only the providers that serve your city are shown. Each is costed on its
         own PCIA vintage, since that travels with the rate group.
@@ -198,6 +218,10 @@
         </figcaption>
         <div class="canvas-wrap"><canvas id="chart-providers"></canvas></div>
       </figure>
+    </div>
+
+    <div class="step-nav hidden">
+      <button class="btn primary" data-next="step-load">Next: what if something changed?</button>
     </div>
   </section>
 

@@ -47,11 +47,13 @@ async function init() {
 
   await loadProfiles();
 
+  initStepNav();
+
   $("pick").addEventListener("click", () => $("file").click());
   $("file").addEventListener("change", (e) => e.target.files[0] && readFile(e.target.files[0]));
   setupDropzone();
 
-  for (const id of ["period", "trim", "zone", "baseline-type", "nbt-vintage"]) {
+  for (const id of ["period", "trim", "zone", "baseline-type", "nbt-vintage", "separate-ev-meter"]) {
     $(id).addEventListener("change", recompute);
   }
   $("city").addEventListener("change", () => {
@@ -381,6 +383,7 @@ function recompute() {
   $("step-setup").classList.remove("hidden");
   $("step-results").classList.remove("hidden");
   $("step-load")?.classList.remove("hidden");
+  syncStepNav();
 
   renderTrimNote(dropped);
 
@@ -389,7 +392,9 @@ function recompute() {
   const overlay = currentOverlay();
   // Under a NEM tariff most plans are simply not available, so they are dropped
   // with a reason rather than ranked as options the customer cannot take.
-  const { allowed, excluded } = nemEligiblePlans(nemMode(), state.utility.plans);
+  const { eligible, excludedByMeter } = meterEligiblePlans(state.utility.plans);
+  const { allowed, excluded } = nemEligiblePlans(nemMode(), eligible);
+  excluded.push(...excludedByMeter);
   const results = [];
   for (const plan of allowed) {
     if (overlay && !overlay.doc.plans[plan.id]) continue;
@@ -399,7 +404,7 @@ function recompute() {
       // A plan the rate file can't price is omitted rather than shown wrong.
     }
   }
-  results.sort((a, b) => a.total - b.total);
+  results.sort(byCost);
   renderExcluded(excluded);
   if (!results.length) return;
 
@@ -447,6 +452,85 @@ function renderCoverage(intervals) {
     `Covering ${esc(p.seasons.join(" and "))}.${missing} Rankings from a partial year can differ from a full one.`);
 }
 
+/**
+ * Drop the plans that need their own meter, unless the user says they have one.
+ *
+ * These are not merely hard to qualify for — they are priced against the wrong
+ * data. A whole-home export is the house meter, and EV-TOU serves a second meter
+ * carrying only the charger, so costing the house's kWh on it answers a question
+ * nobody asked. It also happens to produce the cheapest total on the table for a
+ * net exporter, since it is the one schedule with no Base Services Charge, which
+ * is the worst possible place for a plausible wrong answer to appear.
+ *
+ * The flag lives in the rate file rather than as an id check here, so a schedule
+ * that adds or drops the requirement is a data edit.
+ */
+function meterEligiblePlans(plans) {
+  if ($("separate-ev-meter").checked) return { eligible: plans, excludedByMeter: [] };
+  const eligible = [];
+  const excludedByMeter = [];
+  for (const plan of plans) {
+    if (plan.eligibility?.separate_meter_required) {
+      excludedByMeter.push({
+        id: plan.id,
+        name: plan.name,
+        reason: "This plan serves a separately metered EV charger, so it cannot be priced " +
+          "against a whole-home usage file. Tick “separately metered EV charger” above if you have one.",
+      });
+    } else {
+      eligible.push(plan);
+    }
+  }
+  return { eligible, excludedByMeter };
+}
+
+/**
+ * Cheapest first — but a household that exports more than it imports floors at
+ * $0 on several plans at once, and then the totals say nothing. Break that tie
+ * on the credit left over at the end of the period, because that is the only
+ * thing still separating them.
+ *
+ * The credit is deliberately NOT folded into the total. It settles at a
+ * wholesale Net Surplus rate worth a fraction of retail, so $500 of leftover
+ * credit is nothing like $500 of savings; it ranks the zeroes and no more.
+ */
+const byCost = (a, b) => a.total - b.total || b.unusedCredit - a.unusedCredit;
+
+/** True for every row tied with the winner on both keys, so ties keep the star. */
+const isBest = (r, best) =>
+  r.total - best.total < 0.005 && Math.abs(r.unusedCredit - best.unusedCredit) < 0.005;
+
+/**
+ * Wire each step's "next" button to scroll to the step it names. The buttons
+ * live in the markup so the pairing is visible there rather than in a table
+ * here, and each one hides itself whenever its target is missing or still
+ * hidden — offering to jump to results before a file is loaded would advertise
+ * a step that has nothing in it.
+ */
+function initStepNav() {
+  for (const btn of document.querySelectorAll("[data-next]")) {
+    btn.addEventListener("click", () => {
+      const target = $(btn.dataset.next);
+      if (!target || target.classList.contains("hidden")) return;
+      const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      target.scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "start" });
+      // Move focus too, or a keyboard user gets scrolled somewhere their next
+      // Tab doesn't continue from.
+      target.setAttribute("tabindex", "-1");
+      target.focus({ preventScroll: true });
+    });
+  }
+  syncStepNav();
+}
+
+function syncStepNav() {
+  for (const btn of document.querySelectorAll("[data-next]")) {
+    const target = $(btn.dataset.next);
+    const ready = target && !target.classList.contains("hidden");
+    btn.closest(".step-nav").classList.toggle("hidden", !ready);
+  }
+}
+
 function renderHeadline(results, intervals) {
   const best = results[0];
   const p = describePeriod(intervals, state.utility);
@@ -459,12 +543,33 @@ function renderHeadline(results, intervals) {
         Cheapest of ${results.length} plan${results.length === 1 ? "" : "s"} on
         ${esc(best.provider)} for ${esc(p.label)}.
         ${spread > 0.005 ? `Switching to the most expensive would cost ${money(spread)} more.` : ""}
+        ${best.unusedCredit > 0.005
+          && best.total - (best.lines.fixed + best.lines.nonbypassable) < 0.005
+          ? `You export more than you import, so generation credits cancel everything they are ` +
+            `allowed to and the bill lands on the Base Services Charge plus the non-bypassable ` +
+            `charges on the power you did import, neither of which credits can offset. ` +
+            `Several plans tie there, so the ranking falls back to the credit left over — ` +
+            `${money(best.unusedCredit)} here, paid out at a wholesale rate, not this one.`
+          : ""}
       </div>
     </div>`;
 }
 
+/**
+ * "vs best" normally reads in dollars. When both rows floor at $0 that column
+ * would be a row of dashes hiding a real difference, so it falls back to the
+ * credit gap — worded as credit, never as money, since the two do not settle at
+ * the same rate.
+ */
+function deltaCell(r, best, delta) {
+  if (delta >= 0.005) return "+" + money(delta);
+  const creditGap = best.unusedCredit - r.unusedCredit;
+  if (creditGap < 0.005) return "—";
+  return `<span class="credit-gap">${money(creditGap)} less credit</span>`;
+}
+
 function renderTable(results) {
-  const best = results[0].total;
+  const best = results[0];
   $("ranking").tBodies[0].innerHTML = results.map((r) => {
     // Export credits and non-bypassable charges ride in the adders column
     // rather than getting one each — they are zero for most people, and the
@@ -472,19 +577,22 @@ function renderTable(results) {
     const adders = r.lines.pcia + r.lines.stateRegulatoryFee +
       r.lines.franchiseFeeDifferential + r.lines.franchiseFeeEquivalent + r.lines.baselineCredit +
       r.lines.nonbypassable - r.lines.exportCredit;
-    const delta = r.total - best;
-    const cls = [r.planId === results[0].planId ? "best" : "",
+    const delta = r.total - best.total;
+    // Tie on the numbers, not on position: two plans a fraction of a cent apart
+    // are both the cheapest answer, and marking only the first implies a
+    // precision the rates don't have.
+    const cls = [isBest(r, best) ? "best" : "",
                  r.planId === state.selectedPlanId ? "selected" : ""].join(" ").trim();
     return `<tr data-plan="${esc(r.planId)}" class="${cls}" tabindex="0">
       <td>${esc(r.planName)}<span class="plan-sub">${esc(r.provider)}${r.pricingModel === "tiered" ? " · tiered" : ""}${
         r.lines.exportCredit > 0 ? ` · ${money(r.lines.exportCredit)} export credit` : ""}${
-        r.unusedCredit > 0 ? " · ends in credit" : ""}</span></td>
+        r.unusedCredit > 0.005 ? ` · ${money(r.unusedCredit)} credit left over` : ""}</span></td>
       <td class="num-col">${money(r.lines.delivery)}</td>
       <td class="num-col">${money(r.lines.generation)}</td>
       <td class="num-col">${money(r.lines.fixed)}</td>
       <td class="num-col">${money(adders)}</td>
       <td class="num-col total">${money(r.total)}</td>
-      <td class="num-col delta">${delta < 0.005 ? "—" : "+" + money(delta)}</td>
+      <td class="num-col delta">${deltaCell(r, best, delta)}</td>
     </tr>`;
   }).join("");
 
@@ -501,11 +609,17 @@ function renderTable(results) {
  */
 function renderExcluded(excluded) {
   if (!excluded.length) { $("excluded-note").innerHTML = ""; return; }
-  const reason = excluded[0].reason; // Same rule for every plan it dropped.
-  const names = excluded.map((x) => esc(x.name.split("—")[0].trim())).join(", ");
+  // Plans can now be dropped by two independent rules at once — a NEM tariff and
+  // the separate-meter gate — so the reasons are grouped rather than assuming
+  // one rule explains every missing row.
+  const byReason = new Map();
+  for (const x of excluded) {
+    byReason.set(x.reason, [...(byReason.get(x.reason) ?? []), x.name.split("—")[0].trim()]);
+  }
+  const parts = [...byReason].map(([reason, names]) =>
+    `${esc(reason)} Excluded: ${names.map(esc).join(", ")}.`);
   $("excluded-note").innerHTML =
-    `<b>${excluded.length} plan${excluded.length === 1 ? "" : "s"} not shown.</b> ` +
-    `${esc(reason)} Excluded: ${names}.`;
+    `<b>${excluded.length} plan${excluded.length === 1 ? "" : "s"} not shown.</b> ${parts.join(" ")}`;
 }
 
 function renderCaveats() {
@@ -514,8 +628,10 @@ function renderCaveats() {
      "NEM 2.0 nets exports against imports at retail, and NEM 3.0 credits them at SDG&E's published hourly export prices — both are implemented. What isn't: if you end the period holding credit, that is paid out at a wholesale rate that varies hourly, so a household generating more than it uses will do slightly better than shown."],
     ["What-if scenarios are modelled, not quoted",
      "The solar curve is a clear-sky model for a generic south-facing San Diego roof — it knows the sun's position exactly and knows nothing about weather, your roof's angle, or the tree next to it. That is why the annual output is yours to enter: put the number from a real quote in and only the shape is being assumed. The battery is scheduled by a simple rule that reacts to today's prices with no forecast, so a real system managed by its installer should beat what's shown here. Payback is arithmetic on the numbers you supplied and includes no tax credit, rebate, financing or degradation."],
-    ["Eligibility is only enforced for solar",
-     "Under a solar plan the calculator drops the plans that tariff forbids. Everywhere else every plan is priced, including ones you may not qualify for. TOU-ELEC is capped at 10,000 customers, EV plans need a registered EV, and EV-TOU requires a separately metered charger — so its total is not comparable to a whole-home plan."],
+    ["Eligibility is only enforced where the price would be meaningless",
+     "Two rules are enforced: a solar tariff drops the plans it forbids, and EV-TOU is hidden unless you say you have a separately metered charger, because it prices a meter your usage file does not describe. Everything else is priced whether or not you qualify — TOU-ELEC is capped at 10,000 customers, and the EV plans need a registered EV."],
+    ["EV-TOU is priced as one meter, and it is really two",
+     "If you tick the separately metered charger box, EV-TOU is costed by running your whole-home file through it. That is not what such a bill looks like: the house sits on a whole-home schedule and only the charger sits on EV-TOU, so a real customer gets two sets of charges. Splitting them means guessing how much of your usage was charging, which the file does not record. Nothing here has been checked against an actual EV-TOU bill. Treat its total as a rough single-meter approximation, not a quote — and note it is also the only residential schedule with no Base Services Charge, which flatters it against every other plan."],
     ["One rate revision per period",
      "Rates change several times a year. The calculator applies a single set to the whole period, which introduces a small error when your data spans a change."],
     ["Some fees are inferred, not published",
@@ -648,8 +764,8 @@ function renderAddedLoad() {
   }
   if (!results.length) { $("load-result").innerHTML = ""; return; }
 
-  results.sort((a, b) => a.after.total - b.after.total);
-  const baseline = [...results].sort((a, b) => a.before.total - b.before.total)[0];
+  results.sort((a, b) => byCost(a.after, b.after));
+  const baseline = [...results].sort((a, b) => byCost(a.before, b.before))[0];
   const best = results[0];
   const delta = best.after.total - baseline.before.total;
 
@@ -843,7 +959,7 @@ function providerRows(intervals, planId) {
       });
     } catch { /* provider doesn't serve this plan */ }
   }
-  rows.sort((a, b) => a.total - b.total);
+  rows.sort(byCost);
   return rows;
 }
 
@@ -871,19 +987,25 @@ function renderProviderTable(rows) {
   wrap.classList.toggle("hidden", rows.length < 2);
   if (rows.length < 2) return;
 
-  const best = rows[0].total;
+  const best = rows[0];
   const selected = $("provider").value;
   $("provider-table").tBodies[0].innerHTML = rows.map((r) => {
-    const delta = r.total - best;
+    const delta = r.total - best.total;
     const credits = r.lines.generationCredit - r.lines.exportCredit;
-    return `<tr class="${r.file === selected ? "selected" : ""}">
-      <td>${esc(r.name)}<span class="plan-sub">${esc(r.sub)}</span></td>
+    // Rows arrive sorted, so the first is the cheapest — but tie on the numbers
+    // rather than on position, or two providers a fraction of a cent apart would
+    // have one crowned and the other silently not.
+    const cls = [isBest(r, best) ? "best" : "", r.file === selected ? "selected" : ""]
+      .join(" ").trim();
+    return `<tr class="${cls}">
+      <td>${esc(r.name)}<span class="plan-sub">${esc(r.sub)}${
+        r.unusedCredit > 0.005 ? ` · ${money(r.unusedCredit)} credit left over` : ""}</span></td>
       <td class="num-col">${r.renewablePct == null ? "—" : `${r.renewablePct}%`}</td>
       <td class="num-col">${money(r.lines.generation)}</td>
       <td class="num-col">${money(r.lines.pcia)}</td>
       <td class="num-col">${Math.abs(credits) < 0.005 ? "—" : money(credits)}</td>
       <td class="num-col total">${money(r.total)}</td>
-      <td class="num-col delta">${delta < 0.005 ? "—" : "+" + money(delta)}</td>
+      <td class="num-col delta">${deltaCell(r, best, delta)}</td>
     </tr>`;
   }).join("");
 }
