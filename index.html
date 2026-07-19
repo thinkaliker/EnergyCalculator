@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>San Diego Electricity Plan Calculator</title>
+<meta name="description" content="Compare SDG&amp;E and San Diego CCA electricity plans against your own Green Button usage data. Runs entirely in your browser.">
+<link rel="stylesheet" href="stylesheet.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <h1>Which electricity plan is cheapest for <em>you</em>?</h1>
+    <p class="lede">
+      Upload your SDG&amp;E Green Button data and see what every residential plan
+      and generation provider would actually have cost you — priced interval by
+      interval against the filed tariffs, not an average.
+    </p>
+    <p class="privacy">
+      <strong>Your usage data never leaves your browser.</strong>
+      There is no server and no upload. The file is read locally, the rates are
+      static JSON, and the arithmetic runs on this page.
+    </p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- Step 1 ------------------------------------------------------------ -->
+  <section class="step" id="step-import">
+    <h2><span class="num">1</span> Your usage data</h2>
+
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="file" accept=".csv,.xml" hidden>
+      <button class="btn primary" id="pick">Choose a file</button>
+      <p class="hint">or drag it here — CSV or Green Button XML</p>
+      <details class="how">
+        <summary>How do I get this file?</summary>
+        <ol>
+          <li>Sign in to <a href="https://myenergycenter.com" target="_blank" rel="noopener">My Energy Center</a>.</li>
+          <li>Go to <em>My Energy Use</em> → <em>Download My Data</em>.</li>
+          <li>Choose the longest range offered — a full year gets you a far better answer than a month.</li>
+          <li>Export as CSV or Green Button XML.</li>
+        </ol>
+      </details>
+    </div>
+
+    <div class="loaded hidden" id="loaded">
+      <div class="stat-row" id="import-stats"></div>
+      <div class="controls">
+        <label>
+          Analysis period
+          <select id="period">
+            <option value="full">Everything in the file</option>
+            <option value="ytd">Year to date</option>
+          </select>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="trim" checked>
+          <span>Trim incomplete days<small>Exports usually start and end mid-day</small></span>
+        </label>
+      </div>
+      <div id="period-notes"></div>
+    </div>
+  </section>
+
+  <!-- Step 2 ------------------------------------------------------------ -->
+  <section class="step hidden" id="step-setup">
+    <h2><span class="num">2</span> Your situation</h2>
+    <div class="controls grid">
+      <label>
+        Climate zone
+        <select id="zone"></select>
+        <small>Printed on your bill. Sets your baseline allowance.</small>
+      </label>
+      <label>
+        Baseline type
+        <select id="baseline-type">
+          <option value="basic">Standard</option>
+          <option value="all_electric">All-electric</option>
+        </select>
+        <small>All-electric needs electric space or water heating, and must be applied for.</small>
+      </label>
+      <label>
+        Generation provider
+        <select id="provider"></select>
+        <small>SDG&amp;E delivers the power either way — only generation changes.</small>
+      </label>
+      <label id="vintage-wrap">
+        PCIA vintage
+        <select id="vintage"></select>
+        <small>The year you left SDG&amp;E generation. Set from your provider.</small>
+      </label>
+      <label class="check">
+        <input type="checkbox" id="city-sd">
+        <span>I'm inside San Diego city limits<small>Adds the franchise fee differential</small></span>
+      </label>
+    </div>
+  </section>
+
+  <!-- Step 3 ------------------------------------------------------------ -->
+  <section class="step hidden" id="step-results">
+    <h2><span class="num">3</span> What each plan would cost</h2>
+
+    <div id="coverage-warning"></div>
+
+    <div class="result-head">
+      <div id="headline"></div>
+    </div>
+
+    <div class="table-scroll">
+      <table id="ranking">
+        <thead>
+          <tr>
+            <th>Plan</th>
+            <th class="num-col">Delivery</th>
+            <th class="num-col">Generation</th>
+            <th class="num-col">Fixed</th>
+            <th class="num-col">Adders &amp; credits</th>
+            <th class="num-col">Total</th>
+            <th class="num-col">vs best</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="footnote">
+      Cost is for the selected period only, never annualized. Click a row to see
+      it charted below.
+    </p>
+
+    <div class="charts">
+      <figure>
+        <figcaption>Cost by plan, split into its parts</figcaption>
+        <div class="canvas-wrap"><canvas id="chart-plans"></canvas></div>
+      </figure>
+      <figure>
+        <figcaption>
+          Your average day
+          <small>Shaded band is the 4–9pm on-peak window</small>
+        </figcaption>
+        <div class="canvas-wrap"><canvas id="chart-shape"></canvas></div>
+      </figure>
+      <figure>
+        <figcaption>Usage by month</figcaption>
+        <div class="canvas-wrap"><canvas id="chart-monthly"></canvas></div>
+      </figure>
+      <figure>
+        <figcaption>
+          Same plan, every provider
+          <small id="provider-chart-plan"></small>
+        </figcaption>
+        <div class="canvas-wrap"><canvas id="chart-providers"></canvas></div>
+      </figure>
+    </div>
+  </section>
+
+  <!-- Step 4 ------------------------------------------------------------ -->
+  <section class="step hidden" id="step-load">
+    <h2><span class="num">4</span> What if I added a big load?</h2>
+    <p class="lede small">
+      Added as an hourly <em>shape</em>, not a monthly total. Charging an EV at
+      1am and at 6pm cost very different amounts for identical kWh.
+    </p>
+    <div class="controls grid">
+      <label>
+        Load
+        <select id="profile"><option value="">None</option></select>
+      </label>
+      <label>
+        Annual kWh
+        <input type="number" id="profile-kwh" min="0" step="100" value="3000">
+        <small id="profile-note"></small>
+      </label>
+    </div>
+    <div id="load-result"></div>
+    <figure class="hidden" id="load-figure">
+      <figcaption>Your average day, before and after</figcaption>
+      <div class="canvas-wrap"><canvas id="chart-load"></canvas></div>
+    </figure>
+  </section>
+
+  <section class="step" id="step-caveats">
+    <h2>What this does and doesn't know</h2>
+    <div class="caveats" id="caveats"></div>
+  </section>
+
+</main>
+
+<footer class="wrap">
+  <p>
+    Rates are extracted from filed SDG&amp;E tariff sheets and published CCA rate
+    schedules, and the engine is checked against a real bill to within 0.1%.
+    It is still an estimate — not a quote, and not affiliated with SDG&amp;E,
+    San Diego Community Power, or Clean Energy Alliance.
+  </p>
+  <p id="rate-provenance"></p>
+</footer>
+
+<script src="vendor/chart.umd.js"></script>
+<script type="module" src="main.js"></script>
+</body>
+</html>

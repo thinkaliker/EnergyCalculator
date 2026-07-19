@@ -1,0 +1,32 @@
+{
+  "id": "pool-pump",
+  "name": "Pool pump",
+  "annual_kwh": 2500,
+  "hourly_shape": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0.16665,
+    0.16667,
+    0.16667,
+    0.16667,
+    0.16667,
+    0.16667,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "notes": "Single daytime cycle, 10am-4pm. Partly super-off-peak, partly off-peak."
+}

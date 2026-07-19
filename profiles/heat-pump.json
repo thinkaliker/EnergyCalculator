@@ -1,0 +1,32 @@
+{
+  "id": "heat-pump",
+  "name": "Heat pump, whole home",
+  "annual_kwh": 4000,
+  "hourly_shape": [
+    0.02597,
+    0.02165,
+    0.02165,
+    0.02165,
+    0.02597,
+    0.03896,
+    0.06061,
+    0.06494,
+    0.05195,
+    0.03896,
+    0.03463,
+    0.0303,
+    0.0303,
+    0.0303,
+    0.03463,
+    0.04329,
+    0.05628,
+    0.06926,
+    0.07359,
+    0.06494,
+    0.05195,
+    0.04329,
+    0.03463,
+    0.0303
+  ],
+  "notes": "Morning and evening peaks with a daytime baseline. Evening ramp overlaps on-peak."
+}

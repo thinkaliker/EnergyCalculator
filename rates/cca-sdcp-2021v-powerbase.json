@@ -1,0 +1,914 @@
+{
+  "provider": "sdcp",
+  "type": "generation",
+  "effective_date": "2026-05-01",
+  "seasons_note": "Summer Jun 1 - Oct 31, Winter Nov 1 - May 31 — matches sdge.json.",
+  "product": "PowerBase",
+  "rate_group": "2021v",
+  "service_area": "San Diego, Chula Vista, Encinitas, Imperial Beach, and La Mesa",
+  "pcia_vintage": 2021,
+  "renewable_content_pct": 45,
+  "source_url": "https://sdcommunitypower.org/residential-rates/2021v/",
+  "verified_against": "SDCP residential rate schedule for 2021v customers (San Diego, Chula Vista, Encinitas, Imperial Beach, and La Mesa), effective May 1 2026",
+  "_notes": {
+    "rate_group": "SDCP publishes two residential schedules. This one applies to San Diego, Chula Vista, Encinitas, Imperial Beach, and La Mesa. The split follows enrollment year, which is also the customer's PCIA vintage (2021) — so the two groups pay different exit fees as well as different generation rates.",
+    "dr_is_tiered": "SDG&E's DR is tiered but SDCP publishes a single flat generation price for it, so both tiers carry the same number. The tier split is entirely in SDG&E delivery.",
+    "tou_elec_own_rate": "Unlike CEA, SDCP prices TOU-ELEC separately from the EV-TOU family."
+  },
+  "plans": {
+    "dr": {
+      "summer": [
+        {
+          "up_to_pct_of_baseline": 130,
+          "price_per_kwh": 0.12684
+        },
+        {
+          "up_to_pct_of_baseline": null,
+          "price_per_kwh": 0.12684
+        }
+      ],
+      "winter": [
+        {
+          "up_to_pct_of_baseline": 130,
+          "price_per_kwh": 0.12684
+        },
+        {
+          "up_to_pct_of_baseline": null,
+          "price_per_kwh": 0.12684
+        }
+      ]
+    },
+    "tou-dr1": {
+      "summer": {
+        "weekday": [
+          {
+            "start_hour": 0,
+            "end_hour": 6,
+            "price_per_kwh": 0.01
+          },
+          {
+            "start_hour": 6,
+            "end_hour": 10,
+            "price_per_kwh": 0.07864
+          },
+          {
+            "start_hour": 10,
+            "end_hour": 14,
+            "price_per_kwh": 0.01
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.07864
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.27484
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.07864
+          }
+        ],
+        "weekend": [
+          {
+            "start_hour": 0,
+            "end_hour": 14,
+            "price_per_kwh": 0.01
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.07864
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.27484
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.07864
+          }
+        ]
+      },
+      "winter": {
+        "weekday": [
+          {
+            "start_hour": 0,
+            "end_hour": 6,
+            "price_per_kwh": 0.0553
+          },
+          {
+            "start_hour": 6,
+            "end_hour": 10,
+            "price_per_kwh": 0.136
+          },
+          {
+            "start_hour": 10,
+            "end_hour": 14,
+            "price_per_kwh": 0.0553
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.136
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.20865
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.136
+          }
+        ],
+        "weekend": [
+          {
+            "start_hour": 0,
+            "end_hour": 14,
+            "price_per_kwh": 0.0553
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.136
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.20865
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.136
+          }
+        ]
+      }
+    },
+    "tou-dr": {
+      "summer": {
+        "weekday": [
+          {
+            "start_hour": 0,
+            "end_hour": 6,
+            "price_per_kwh": 0.06623
+          },
+          {
+            "start_hour": 6,
+            "end_hour": 10,
+            "price_per_kwh": 0.11557
+          },
+          {
+            "start_hour": 10,
+            "end_hour": 14,
+            "price_per_kwh": 0.06623
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.11557
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.16792
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.11557
+          }
+        ],
+        "weekend": [
+          {
+            "start_hour": 0,
+            "end_hour": 14,
+            "price_per_kwh": 0.06623
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.11557
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.16792
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.11557
+          }
+        ]
+      },
+      "winter": {
+        "weekday": [
+          {
+            "start_hour": 0,
+            "end_hour": 6,
+            "price_per_kwh": 0.05523
+          },
+          {
+            "start_hour": 6,
+            "end_hour": 10,
+            "price_per_kwh": 0.13585
+          },
+          {
+            "start_hour": 10,
+            "end_hour": 14,
+            "price_per_kwh": 0.05523
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.13585
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.20845
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.13585
+          }
+        ],
+        "weekend": [
+          {
+            "start_hour": 0,
+            "end_hour": 14,
+            "price_per_kwh": 0.05523
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.13585
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.20845
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.13585
+          }
+        ]
+      }
+    },
+    "tou-elec": {
+      "summer": {
+        "weekday": [
+          {
+            "start_hour": 0,
+            "end_hour": 6,
+            "price_per_kwh": 0.04115
+          },
+          {
+            "start_hour": 6,
+            "end_hour": 10,
+            "price_per_kwh": 0.07946
+          },
+          {
+            "start_hour": 10,
+            "end_hour": 14,
+            "price_per_kwh": 0.04115
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.07946
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.3706
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.07946
+          }
+        ],
+        "weekend": [
+          {
+            "start_hour": 0,
+            "end_hour": 14,
+            "price_per_kwh": 0.04115
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.07946
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.3706
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.07946
+          }
+        ]
+      },
+      "winter": {
+        "weekday": [
+          {
+            "start_hour": 0,
+            "end_hour": 6,
+            "price_per_kwh": 0.03421
+          },
+          {
+            "start_hour": 6,
+            "end_hour": 10,
+            "price_per_kwh": 0.06904
+          },
+          {
+            "start_hour": 10,
+            "end_hour": 14,
+            "price_per_kwh": 0.03421
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.06904
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.18051
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.06904
+          }
+        ],
+        "weekend": [
+          {
+            "start_hour": 0,
+            "end_hour": 14,
+            "price_per_kwh": 0.03421
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.06904
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.18051
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.06904
+          }
+        ]
+      }
+    },
+    "ev-tou": {
+      "summer": {
+        "weekday": [
+          {
+            "start_hour": 0,
+            "end_hour": 6,
+            "price_per_kwh": 0.0368
+          },
+          {
+            "start_hour": 6,
+            "end_hour": 10,
+            "price_per_kwh": 0.11828
+          },
+          {
+            "start_hour": 10,
+            "end_hour": 14,
+            "price_per_kwh": 0.0368
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.11828
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.38242
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.11828
+          }
+        ],
+        "weekend": [
+          {
+            "start_hour": 0,
+            "end_hour": 14,
+            "price_per_kwh": 0.0368
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.11828
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.38242
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.11828
+          }
+        ]
+      },
+      "winter": {
+        "weekday": [
+          {
+            "start_hour": 0,
+            "end_hour": 6,
+            "price_per_kwh": 0.03024
+          },
+          {
+            "start_hour": 6,
+            "end_hour": 10,
+            "price_per_kwh": 0.09183
+          },
+          {
+            "start_hour": 10,
+            "end_hour": 14,
+            "price_per_kwh": 0.03024
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.09183
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.1421
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.09183
+          }
+        ],
+        "weekend": [
+          {
+            "start_hour": 0,
+            "end_hour": 14,
+            "price_per_kwh": 0.03024
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.09183
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.1421
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.09183
+          }
+        ]
+      }
+    },
+    "ev-tou-2": {
+      "summer": {
+        "weekday": [
+          {
+            "start_hour": 0,
+            "end_hour": 6,
+            "price_per_kwh": 0.0368
+          },
+          {
+            "start_hour": 6,
+            "end_hour": 10,
+            "price_per_kwh": 0.11828
+          },
+          {
+            "start_hour": 10,
+            "end_hour": 14,
+            "price_per_kwh": 0.0368
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.11828
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.38242
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.11828
+          }
+        ],
+        "weekend": [
+          {
+            "start_hour": 0,
+            "end_hour": 14,
+            "price_per_kwh": 0.0368
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.11828
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.38242
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.11828
+          }
+        ]
+      },
+      "winter": {
+        "weekday": [
+          {
+            "start_hour": 0,
+            "end_hour": 6,
+            "price_per_kwh": 0.03024
+          },
+          {
+            "start_hour": 6,
+            "end_hour": 10,
+            "price_per_kwh": 0.09183
+          },
+          {
+            "start_hour": 10,
+            "end_hour": 14,
+            "price_per_kwh": 0.03024
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.09183
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.1421
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.09183
+          }
+        ],
+        "weekend": [
+          {
+            "start_hour": 0,
+            "end_hour": 14,
+            "price_per_kwh": 0.03024
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.09183
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.1421
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.09183
+          }
+        ]
+      }
+    },
+    "ev-tou-5": {
+      "summer": {
+        "weekday": [
+          {
+            "start_hour": 0,
+            "end_hour": 6,
+            "price_per_kwh": 0.0368
+          },
+          {
+            "start_hour": 6,
+            "end_hour": 10,
+            "price_per_kwh": 0.11828
+          },
+          {
+            "start_hour": 10,
+            "end_hour": 14,
+            "price_per_kwh": 0.0368
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.11828
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.38242
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.11828
+          }
+        ],
+        "weekend": [
+          {
+            "start_hour": 0,
+            "end_hour": 14,
+            "price_per_kwh": 0.0368
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.11828
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.38242
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.11828
+          }
+        ]
+      },
+      "winter": {
+        "weekday": [
+          {
+            "start_hour": 0,
+            "end_hour": 6,
+            "price_per_kwh": 0.03024
+          },
+          {
+            "start_hour": 6,
+            "end_hour": 10,
+            "price_per_kwh": 0.09183
+          },
+          {
+            "start_hour": 10,
+            "end_hour": 14,
+            "price_per_kwh": 0.03024
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.09183
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.1421
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.09183
+          }
+        ],
+        "weekend": [
+          {
+            "start_hour": 0,
+            "end_hour": 14,
+            "price_per_kwh": 0.03024
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.09183
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.1421
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.09183
+          }
+        ]
+      }
+    },
+    "dr-ses": {
+      "summer": {
+        "weekday": [
+          {
+            "start_hour": 0,
+            "end_hour": 6,
+            "price_per_kwh": 0.0368
+          },
+          {
+            "start_hour": 6,
+            "end_hour": 10,
+            "price_per_kwh": 0.11828
+          },
+          {
+            "start_hour": 10,
+            "end_hour": 14,
+            "price_per_kwh": 0.0368
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.11828
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.38242
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.11828
+          }
+        ],
+        "weekend": [
+          {
+            "start_hour": 0,
+            "end_hour": 14,
+            "price_per_kwh": 0.0368
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.11828
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.38242
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.11828
+          }
+        ]
+      },
+      "winter": {
+        "weekday": [
+          {
+            "start_hour": 0,
+            "end_hour": 6,
+            "price_per_kwh": 0.03024
+          },
+          {
+            "start_hour": 6,
+            "end_hour": 10,
+            "price_per_kwh": 0.09183
+          },
+          {
+            "start_hour": 10,
+            "end_hour": 14,
+            "price_per_kwh": 0.03024
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.09183
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.1421
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.09183
+          }
+        ],
+        "weekend": [
+          {
+            "start_hour": 0,
+            "end_hour": 14,
+            "price_per_kwh": 0.03024
+          },
+          {
+            "start_hour": 14,
+            "end_hour": 16,
+            "price_per_kwh": 0.09183
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.1421
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.09183
+          }
+        ]
+      }
+    },
+    "tou-dr2": {
+      "summer": {
+        "weekday": [
+          {
+            "start_hour": 0,
+            "end_hour": 16,
+            "price_per_kwh": 0.03933
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.27484
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.03933
+          }
+        ],
+        "weekend": [
+          {
+            "start_hour": 0,
+            "end_hour": 16,
+            "price_per_kwh": 0.03933
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.27484
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.03933
+          }
+        ]
+      },
+      "winter": {
+        "weekday": [
+          {
+            "start_hour": 0,
+            "end_hour": 16,
+            "price_per_kwh": 0.08685
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.20865
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.08685
+          }
+        ],
+        "weekend": [
+          {
+            "start_hour": 0,
+            "end_hour": 16,
+            "price_per_kwh": 0.08685
+          },
+          {
+            "start_hour": 16,
+            "end_hour": 21,
+            "price_per_kwh": 0.20865
+          },
+          {
+            "start_hour": 21,
+            "end_hour": 24,
+            "price_per_kwh": 0.08685
+          }
+        ]
+      }
+    }
+  }
+}

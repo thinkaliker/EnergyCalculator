@@ -1,0 +1,74 @@
+{
+  "generated": "2026-07-18",
+  "files": [
+    {
+      "provider": "sdge",
+      "type": "utility",
+      "effective_date": "2026-06-01",
+      "path": "sdge.json"
+    },
+    {
+      "provider": "cea",
+      "type": "generation",
+      "effective_date": "2026-06-01",
+      "path": "cca-cea-clean-impact-plus.json",
+      "product": "Clean Impact Plus"
+    },
+    {
+      "provider": "cea",
+      "type": "generation",
+      "effective_date": "2026-06-01",
+      "path": "cca-cea-clean-impact.json",
+      "product": "Clean Impact"
+    },
+    {
+      "provider": "cea",
+      "type": "generation",
+      "effective_date": "2026-06-01",
+      "path": "cca-cea-green-impact.json",
+      "product": "Green Impact"
+    },
+    {
+      "provider": "sdcp",
+      "type": "generation",
+      "effective_date": "2026-05-01",
+      "path": "cca-sdcp-2021v-power100.json",
+      "product": "Power100"
+    },
+    {
+      "provider": "sdcp",
+      "type": "generation",
+      "effective_date": "2026-05-01",
+      "path": "cca-sdcp-2021v-powerbase.json",
+      "product": "PowerBase"
+    },
+    {
+      "provider": "sdcp",
+      "type": "generation",
+      "effective_date": "2026-05-01",
+      "path": "cca-sdcp-2021v-poweron.json",
+      "product": "PowerOn"
+    },
+    {
+      "provider": "sdcp",
+      "type": "generation",
+      "effective_date": "2026-05-01",
+      "path": "cca-sdcp-2022v-power100.json",
+      "product": "Power100"
+    },
+    {
+      "provider": "sdcp",
+      "type": "generation",
+      "effective_date": "2026-05-01",
+      "path": "cca-sdcp-2022v-powerbase.json",
+      "product": "PowerBase"
+    },
+    {
+      "provider": "sdcp",
+      "type": "generation",
+      "effective_date": "2026-05-01",
+      "path": "cca-sdcp-2022v-poweron.json",
+      "product": "PowerOn"
+    }
+  ]
+}

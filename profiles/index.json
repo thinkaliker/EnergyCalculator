@@ -1,0 +1,35 @@
+{
+  "generated": "2026-07-19",
+  "profiles": [
+    {
+      "id": "ev-overnight",
+      "name": "EV charging, overnight",
+      "path": "ev-overnight.json"
+    },
+    {
+      "id": "ev-evening",
+      "name": "EV charging, plug in after work",
+      "path": "ev-evening.json"
+    },
+    {
+      "id": "ev-midday",
+      "name": "EV charging, midday",
+      "path": "ev-midday.json"
+    },
+    {
+      "id": "heat-pump",
+      "name": "Heat pump, whole home",
+      "path": "heat-pump.json"
+    },
+    {
+      "id": "pool-pump",
+      "name": "Pool pump",
+      "path": "pool-pump.json"
+    },
+    {
+      "id": "water-heater",
+      "name": "Heat pump water heater",
+      "path": "water-heater.json"
+    }
+  ]
+}

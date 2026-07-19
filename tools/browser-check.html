@@ -1,0 +1,182 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Browser end-to-end check</title>
+<!--
+  Drives the real page in an iframe with synthetic Green Button data and reports
+  what came out. Covers the parts tools/test.mjs cannot reach: the DOM wiring,
+  Chart.js rendering, and the file-reading path.
+
+  Serve the repo root, then open tools/browser-check.html.
+-->
+<style>
+  body { font: 14px ui-monospace, monospace; padding: 20px; }
+  .ok { color: #0a0; } .fail { color: #c00; font-weight: bold; }
+  iframe { width: 1100px; height: 700px; border: 1px solid #ccc; margin-top: 20px; }
+</style>
+<div id="out">running…</div>
+<iframe id="app" src="../index.html"></iframe>
+
+<script type="module">
+const out = [];
+let failed = 0;
+const check = (name, cond, detail = "") => {
+  if (!cond) failed++;
+  out.push(`<div class="${cond ? "ok" : "fail"}">${cond ? "ok  " : "FAIL"} ${name}${cond ? "" : "  " + detail}</div>`);
+};
+
+/** 45 days of 15-minute data spanning the Jun 1 season boundary. */
+function syntheticCsv() {
+  const rows = [
+    "Name,Test", "Address,Somewhere",
+    "Meter Number,Date,Start Time,Duration,Consumption,Generation,Net",
+  ];
+  const start = new Date(2026, 4, 10); // May 10 -> Jun 23, crosses into summer
+  for (let d = 0; d < 45; d++) {
+    for (let s = 0; s < 96; s++) {
+      const t = new Date(start.getFullYear(), start.getMonth(), start.getDate() + d, 0, s * 15);
+      const hour = t.getHours();
+      // Evening-weighted shape so on-peak actually matters.
+      const kwh = (hour >= 16 && hour < 21 ? 0.42 : hour < 6 ? 0.08 : 0.18).toFixed(4);
+      const mer = hour < 12 ? "AM" : "PM";
+      const h12 = hour % 12 === 0 ? 12 : hour % 12;
+      const time = `${h12}:${String(t.getMinutes()).padStart(2, "0")} ${mer}`;
+      const date = `${t.getMonth() + 1}/${t.getDate()}/${t.getFullYear()}`;
+      rows.push(`"1","${date}","${time}","15","${kwh}","0.0000","${kwh}"`);
+    }
+  }
+  return rows.join("\r\n");
+}
+
+const frame = document.getElementById("app");
+const errors = [];
+
+frame.addEventListener("load", () => run().catch((e) => {
+  document.getElementById("out").innerHTML =
+    out.join("") + `<h3 class="fail">HARNESS ERROR: ${e.message}<br><small>${e.stack}</small></h3>`;
+  document.title = "FAIL harness";
+}));
+
+async function run() {
+  const win = frame.contentWindow;
+  const doc = frame.contentDocument;
+  win.addEventListener("error", (e) => errors.push(e.message));
+  win.addEventListener("unhandledrejection", (e) => errors.push(String(e.reason)));
+
+  await settle(1200);
+  check("page booted without an error notice", !doc.querySelector(".notice.warn"),
+    doc.querySelector(".notice.warn")?.textContent ?? "");
+  check("rate files loaded into provider select", doc.getElementById("provider").options.length > 5);
+
+  // Feed the synthetic export through the real file input.
+  const file = new win.File([syntheticCsv()], "test.csv", { type: "text/csv" });
+  const dt = new win.DataTransfer();
+  dt.items.add(file);
+  const input = doc.getElementById("file");
+  input.files = dt.files;
+  input.dispatchEvent(new win.Event("change"));
+
+  await settle(1500);
+
+  const rows = [...doc.querySelectorAll("#ranking tbody tr")];
+  check("ranking table populated", rows.length >= 8, `${rows.length} rows`);
+  check("results section revealed", !doc.getElementById("step-results").classList.contains("hidden"));
+  check("headline rendered", /\$\d/.test(doc.getElementById("headline").textContent));
+
+  const totals = rows.map((r) => parseFloat(r.cells[5].textContent.replace(/[$,]/g, "")));
+  check("all totals are finite positive numbers", totals.every((t) => t > 0 && isFinite(t)), totals.join());
+  check("totals are sorted cheapest first",
+    totals.every((t, i) => i === 0 || t >= totals[i - 1]), totals.join());
+  check("cheapest row is starred", rows[0].classList.contains("best"));
+
+  // A 45-day export is not a year, and it must say so.
+  const cov = doc.getElementById("coverage-warning").textContent;
+  check("partial-year coverage warning shown", /not a full year/i.test(cov), cov.trim().slice(0, 80));
+  check("coverage names the seasons covered", /winter|summer/i.test(cov));
+
+  // Charts must actually render, not just exist as empty canvases.
+  const canvases = ["chart-plans", "chart-shape", "chart-monthly", "chart-providers"]
+    .map((id) => doc.getElementById(id));
+  check("all four charts have drawn pixels",
+    canvases.every((c) => c.width > 0 && c.height > 0 && hasInk(c)),
+    canvases.map((c) => `${c.id}:${c.width}x${c.height}`).join(" "));
+
+  // Ink alone is not enough — axes draw ink on an empty chart. Assert each
+  // chart actually holds plotted values.
+  const counts = canvases.map((c) => {
+    const chart = win.Chart.getChart(c);
+    return chart ? chart.data.datasets.reduce((n, ds) => n + ds.data.filter((v) => v != null).length, 0) : 0;
+  });
+  check("every chart has plotted data points", counts.every((n) => n > 0),
+    canvases.map((c, i) => `${c.id}=${counts[i]}`).join(" "));
+  const providerChart = win.Chart.getChart(doc.getElementById("chart-providers"));
+  check("provider chart compares more than one provider",
+    providerChart && providerChart.data.labels.length > 1,
+    `${providerChart?.data.labels.length ?? 0} bars`);
+  check("provider chart values are all positive",
+    providerChart.data.datasets[0].data.every((v) => v > 0));
+
+  // Switching provider must re-cost, not silently keep SDG&E numbers.
+  const before = totals[0];
+  const provider = doc.getElementById("provider");
+  provider.value = [...provider.options].find((o) => o.value.includes("sdcp"))?.value;
+  provider.dispatchEvent(new win.Event("change"));
+  await settle(700);
+  const after = parseFloat(doc.querySelector("#ranking tbody tr").cells[5].textContent.replace(/[$,]/g, ""));
+  check("switching to a CCA changes the totals", Math.abs(after - before) > 0.01, `${before} -> ${after}`);
+  check("PCIA vintage auto-set from the product",
+    !doc.getElementById("vintage-wrap").classList.contains("hidden"));
+
+  // Adding an evening EV load must cost more than the overnight one — but only
+  // on a time-of-use plan. DR prices on total kWh alone, so on DR the two are
+  // legitimately identical; select a TOU plan before asserting otherwise.
+  const touRow = rows.find((r) => !/tiered/.test(r.cells[0].textContent));
+  touRow.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  await settle(700);
+  check("selecting a TOU plan highlights it",
+    [...doc.querySelectorAll("#ranking tbody tr")].some((r) => r.classList.contains("selected")));
+
+  const profile = doc.getElementById("profile");
+  if (profile) {
+    profile.value = "ev-overnight";
+    profile.dispatchEvent(new win.Event("change"));
+    await settle(600);
+    const night = doc.getElementById("load-result").textContent;
+    profile.value = "ev-evening";
+    profile.dispatchEvent(new win.Event("change"));
+    await settle(600);
+    const evening = doc.getElementById("load-result").textContent;
+    check("added-load section reports a cost", /adds \$\d/.test(night), night.slice(0, 80));
+    check("overnight and evening EV differ", night !== evening);
+    const nightAmt = parseFloat(night.match(/adds \$([\d.]+)/)?.[1] ?? 0);
+    const eveAmt = parseFloat(evening.match(/adds \$([\d.]+)/)?.[1] ?? 0);
+    check("evening charging costs more than overnight", eveAmt > nightAmt, `${nightAmt} vs ${eveAmt}`);
+  }
+
+  // Trimming toggle must change the day count.
+  const trim = doc.getElementById("trim");
+  trim.checked = false;
+  trim.dispatchEvent(new win.Event("change"));
+  await settle(500);
+  check("untrimmed still renders", doc.querySelectorAll("#ranking tbody tr").length >= 8);
+
+  check("no uncaught errors during the run", errors.length === 0, errors.join(" | "));
+
+  document.getElementById("out").innerHTML =
+    out.join("") + `<h3 class="${failed ? "fail" : "ok"}">${failed ? failed + " FAILED" : "ALL PASSED"}</h3>`;
+  document.title = failed ? `FAIL ${failed}` : "PASS";
+}
+
+/** Any non-transparent pixel means Chart.js actually drew something. */
+function hasInk(canvas) {
+  try {
+    const ctx = canvas.getContext("2d");
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    for (let i = 3; i < data.length; i += 4) if (data[i] !== 0) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+const settle = (ms) => new Promise((r) => setTimeout(r, ms));
+</script>

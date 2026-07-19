@@ -1,0 +1,32 @@
+{
+  "id": "ev-midday",
+  "name": "EV charging, midday",
+  "annual_kwh": 3000,
+  "hourly_shape": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0.25,
+    0.25,
+    0.25,
+    0.25,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "notes": "Daytime charging, 10am-2pm. Super-off-peak on most residential schedules."
+}
