@@ -82,6 +82,7 @@
     "franchise_fee_differential_pct": 5.78,
     "franchise_fee_differential_applies_to": "customers within the corporate limits of the City of San Diego",
     "franchise_fee_differential_base": "total_electric_charges - pcia - wf_nbc",
+    "franchise_fee_differential_base_excludes_cca_generation": "On a CCA account 'total electric charges' is SDG&E's own total and stops above the CCA generation section. Schedule NEM-ST SC 3(c) requires the separation: 'The charges or credits resulting from a CCA's generation services shall not be co-mingled with charges or credits resulting from services provided by the Utility.' Verified against the net-exporter bill: 24.60 fixed + 7.12 NBC net of wildfire = 31.72 x 5.78% = 1.83, the figure printed.",
 
     "franchise_fee_base_pct": 1.1,
     "franchise_fee_base_source": "Preliminary Statement, General Information H.1 (EGENERAL, tarfKey 1), Advice Ltr. 3326-E effective Jan 1 2019: the Franchise Fee Differential is 'the difference between the franchise fee percentage and 1.1%'. So 1.1% is the base franchise fee everywhere in the territory, and a city's total is 1.1% plus its differential.",

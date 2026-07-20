@@ -101,6 +101,11 @@
         <select id="nbt-vintage"></select>
         <small>The year you applied. Your export prices are locked to it for nine years.</small>
       </label>
+      <label id="trueup-wrap" class="hidden">
+        True-up date
+        <input type="date" id="trueup-date">
+        <small id="trueup-date-note">Your bill prints it — "your NEM service will true-up on&nbsp;…".</small>
+      </label>
       <label>
         Generation provider
         <select id="provider"></select>
@@ -193,6 +198,23 @@
         Only the providers that serve your city are shown. Each is costed on its
         own PCIA vintage, since that travels with the rate group.
       </p>
+    </div>
+
+    <div id="trueup" class="panel hidden">
+      <h3>Your annual true-up</h3>
+      <p id="trueup-outcome"></p>
+      <table id="trueup-ledger" class="data">
+        <thead>
+          <tr>
+            <th>Billing month</th>
+            <th class="num-col">Net kWh</th>
+            <th class="num-col">Energy</th>
+            <th class="num-col">Credit balance</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p class="footnote" id="trueup-note"></p>
     </div>
 
     <div class="charts">

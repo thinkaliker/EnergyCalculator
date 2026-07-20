@@ -30,6 +30,10 @@ const priceAtHour = (blocks, hour) => {
  * @param {number}  [o.pciaVintage] year the customer left bundled service
  * @param {boolean} [o.inCityOfSanDiego] drives the franchise fee differential
  * @param {object}  [o.nem]        solar: {mode, vintage, exportTable, adderPerKWh}
+ * @param {number}  [o.billingCycleDay] meter-read day, from the true-up date;
+ *                  omit for calendar months
+ * @param {string[]} [o.trueUpBoundaries] billing-month keys that end a Relevant
+ *                  Period, at which carried credit is forfeited
  */
 export function costPlan({
   utility,
@@ -41,6 +45,8 @@ export function costPlan({
   pciaVintage = null,
   inCityOfSanDiego = false,
   nem = null,
+  billingCycleDay = null,
+  trueUpBoundaries = [],
 }) {
   const plan = utility.plans.find((p) => p.id === planId);
   if (!plan) throw new Error(`No plan "${planId}" in the rate file.`);
@@ -99,11 +105,14 @@ export function costPlan({
   };
 
   // Per-month energy dollars, so credits can be seen to carry rather than being
-  // paid out at the end of each month.
+  // paid out at the end of each month, plus raw net kWh — which is a separate
+  // quantity from the dollars and not derivable from them. Schedule NEM-ST
+  // SC 3(h) settles net surplus on kWh alone, so the true-up needs this
+  // un-TOU-weighted figure alongside the priced one.
   const byMonth = new Map();
   const monthBucket = (date) => {
-    const key = monthKey(date);
-    if (!byMonth.has(key)) byMonth.set(key, { energy: 0, days: new Set() });
+    const key = billingMonthKey(date, billingCycleDay);
+    if (!byMonth.has(key)) byMonth.set(key, { energy: 0, netKWh: 0, days: new Set() });
     return byMonth.get(key);
   };
 
@@ -154,6 +163,7 @@ export function costPlan({
     b.kWh += billed;
     b.days.add(dayKey);
     m.days.add(dayKey);
+    m.netKWh += imported - exported;
     allDays.add(dayKey);
 
     if (model === "tou") {
@@ -167,7 +177,7 @@ export function costPlan({
 
       if (nemMode === "nem2") {
         // Accumulate now, price once the month's TOU periods are known.
-        const t = touBucket(monthKey(iv.start), season, generationPrice);
+        const t = touBucket(billingMonthKey(iv.start, billingCycleDay), season, generationPrice);
         t.net += billed;
         t.deliveryPrice = deliveryPrice;
         t.utilGenPrice = priceAtHour(plan.generation[season][dayType], hour);
@@ -341,8 +351,11 @@ export function costPlan({
     // Two things are therefore *not* in it:
     //
     //  - CCA generation. A CCA bills the commodity itself, in its own section
-    //    below SDG&E's total. Leaving it in made the base swing negative for any
-    //    exporter, since the generation line is a large credit.
+    //    below SDG&E's total, and Schedule NEM-ST SC 3(c) requires it stay
+    //    there: "The charges or credits resulting from a CCA's generation
+    //    services shall not be co-mingled with charges or credits resulting
+    //    from services provided by the Utility." Leaving it in made the base
+    //    swing negative for any exporter, since generation is a large credit.
     //  - The wildfire fund charge. On the NEM 2.0 path it is billed separately
     //    inside `nonbypassable`, so it has to come back out here; on the
     //    non-NEM path it is folded into the delivery price instead, and is
@@ -385,21 +398,29 @@ export function costPlan({
   let total = subtotal + franchiseFeeDifferential + franchiseFeeEquivalent;
 
   // --- solar settlement ---------------------------------------------------
-  // Credits carry month to month, but a customer left holding credit at the end
-  // of the period is not paid it in cash. They get Net Surplus Compensation at a
-  // wholesale rate that is DLAP-indexed for SDG&E and CAISO-indexed for SDCP,
-  // varies hourly, and is not modelled — so the bill floors at zero and the
-  // leftover is reported instead of being booked as a negative total.
+  // Credits carry month to month, and stop carrying at the true-up date, where
+  // Schedule NEM-ST SC 3 hands whatever is left to the utility. A net producer
+  // is compensated instead under SC 3(h) — but on surplus *kWh*, not on this
+  // dollar balance, and at a rate this calculator does not model. So the bill
+  // floors and the leftover is reported rather than booked as a negative total.
   let unusedCredit = 0;
   let monthsInCredit = 0;
+  let forfeitedCredit = 0;
+  let ledger = [];
   if (nemMode !== "none") {
-    ({ unusedCredit, monthsInCredit } = settleMonthlyCredits(byMonth));
+    ({ unusedCredit, monthsInCredit, forfeitedCredit, ledger } = settleMonthlyCredits(byMonth, {
+      periodBoundaries: trueUpBoundaries,
+    }));
     // Generation credits cannot reach the Base Services Charge or the
-    // non-bypassable charges. A net exporter's bill is exactly those two lines,
-    // and SDG&E's own Net Energy Metering Summary says so: it prints the whole
-    // remaining balance under the heading "Non-Bypassable Charges".
+    // non-bypassable charges. Schedule NEM-ST SC 3 states it outright:
+    // nonbypassable charges "shall be billed based on the kWhs consumed in each
+    // metered interval net of exports, over the course of the 12-month period
+    // and cannot be offset by generation credits" — and, for an exporter, "the
+    // customer-generator shall still be responsible for payment of the
+    // nonbypassable charges ... and no payment shall be made for the excess
+    // energy delivered to the grid".
     //
-    // Checked against a net-exporter bill: 31 days, -831 kWh, 472 kWh of NBC
+    // Confirmed on a net-exporter bill: 31 days, -831 kWh, 472 kWh of NBC
     // usage. $24.60 Base Services + $7.12 NBC + $2.79 Wildfire Fund = $34.51,
     // and the franchise fees below it ($1.83 + $0.19) were cancelled to the cent
     // by an Applied Generation Credit — so fees are offsettable and these two
@@ -412,9 +433,14 @@ export function costPlan({
     }
     if (unusedCredit > 0) {
       notes.push(
-        `Ends the period with $${unusedCredit.toFixed(2)} of unused credit. At annual true-up that is ` +
-          `paid as Net Surplus Compensation at a wholesale rate this calculator does not model, so the ` +
-          `real total is a little lower than shown.`,
+        `Ends the period holding $${unusedCredit.toFixed(2)} of credit. It is not paid out — at the ` +
+          `true-up date the utility keeps it. Any compensation depends instead on whether the year ` +
+          `exported more kWh than it imported.`,
+      );
+    }
+    if (forfeitedCredit > 0) {
+      notes.push(
+        `$${forfeitedCredit.toFixed(2)} of credit was forfeited at a true-up date inside this period.`,
       );
     }
     if (monthsInCredit > 0) {
@@ -449,6 +475,10 @@ export function costPlan({
     exportedKWh,
     unusedCredit,
     monthsInCredit,
+    forfeitedCredit,
+    // Per-billing-month rows mirroring the bill's NEM summary columns. Empty
+    // for a non-solar plan, which has no credit balance to track.
+    ledger,
     baselineAllowanceKWh,
     lines: {
       delivery,
@@ -530,8 +560,28 @@ function imputedUtilityGeneration({ utility, plan, model, bySeason, calendar, in
 
 const sum = (map, key) => [...map.values()].reduce((s, b) => s + b[key], 0);
 
-/** Calendar month as a sortable key. Used as a stand-in for the billing month. */
+/** Calendar month as a sortable key. */
 const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+
+/**
+ * The billing month a moment falls in, as a sortable key.
+ *
+ * A real billing period runs meter-read to meter-read, not calendar month to
+ * calendar month — the reference bill covers 5/30 to 6/29. Given the cycle's
+ * anniversary day, a date on or after that day belongs to the period the key
+ * names, and a date before it belongs to the previous one. So with day 30, both
+ * 5/30 and 6/29 key to "2026-05", matching the bill.
+ *
+ * Without a cycle day this is the calendar month, which is what every caller
+ * that has no true-up date gets. It is a stand-in, but an unbiased one: it
+ * shifts which month a few days' energy lands in, never the period total.
+ */
+const billingMonthKey = (d, cycleDay) => {
+  if (!cycleDay) return monthKey(d);
+  if (d.getDate() >= cycleDay) return monthKey(d);
+  const prev = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  return monthKey(prev);
+};
 
 /**
  * Cost every plan a provider serves and rank by total.

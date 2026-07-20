@@ -8,8 +8,9 @@ import { applyBattery, createPriceRanker, BATTERY_SIZES } from "./src/scenario.j
 import { createCalendar } from "./src/calendar.js";
 import {
   selectPeriod, trimIncompleteDays, describePeriod,
-  hourlyShape, monthlyTotals, applyLoadProfile,
+  hourlyShape, monthlyTotals, applyLoadProfile, relevantPeriods,
 } from "./src/period.js";
+import { trueUp } from "./src/trueup.js";
 
 const $ = (id) => document.getElementById(id);
 const money = (n) => `$${n.toFixed(2)}`;
@@ -66,6 +67,7 @@ async function init() {
     recompute();
   });
   $("vintage").addEventListener("change", recompute);
+  $("trueup-date").addEventListener("change", recompute);
   $("nem").addEventListener("change", () => {
     syncNemControls();
     recompute();
@@ -367,7 +369,50 @@ function costOptions(intervals, overlayDoc) {
     pciaVintage: Number($("vintage").value),
     inCityOfSanDiego: currentCity()?.name === "San Diego",
     nem: nemOptions(),
+    ...trueUpOptions(intervals),
   };
+}
+
+/**
+ * The true-up date fixes the whole billing grid: its day of the month is the
+ * meter-read day, and its anniversary is where carried credit stops.
+ *
+ * Only NEM 2.0 has a Relevant Period to settle, so nothing here applies to a
+ * NEM 3.0 or non-solar household.
+ */
+function trueUpOptions(intervals) {
+  if (nemMode() !== "nem2" || !intervals.length) return {};
+  const date = trueUpDate(intervals);
+  if (!date) return {};
+  const periods = relevantPeriods(intervals[0].start, intervals.at(-1).start, date);
+  return {
+    billingCycleDay: date.getDate(),
+    // A boundary only counts if the file actually spans it — otherwise there is
+    // no month at which to forfeit anything.
+    trueUpBoundaries: periods
+      .filter((p) => p.trueUp <= intervals.at(-1).start)
+      .map((p) => monthKeyOf(p.trueUp)),
+  };
+}
+
+const monthKeyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+
+/**
+ * The user's true-up date, or an inferred one.
+ *
+ * Inferring is a guess and is labelled as such in the UI: we assume the period
+ * ends twelve months after the data starts, which is right only by luck. The
+ * bill prints the real date, so the field exists mainly to be corrected.
+ */
+function trueUpDate(intervals) {
+  const entered = $("trueup-date").value;
+  if (entered) {
+    const [y, m, d] = entered.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
+  if (!intervals.length) return null;
+  const first = intervals[0].start;
+  return new Date(first.getFullYear() + 1, first.getMonth(), first.getDate());
 }
 
 function recompute() {
@@ -413,6 +458,7 @@ function recompute() {
   }
 
   renderCoverage(intervals);
+  renderTrueUp(intervals, results.find((r) => r.planId === state.selectedPlanId) ?? results[0]);
   renderHeadline(results, intervals);
   renderTable(results);
   drawPlanChart(results);
@@ -429,6 +475,71 @@ function renderTrimNote(dropped) {
   const list = dropped.slice(0, 3).map((d) => `${d.date} (${d.got}/${d.expected})`).join(", ");
   $("period-notes").innerHTML = notice("info", `Trimmed ${dropped.length} incomplete day${dropped.length === 1 ? "" : "s"}`,
     `${esc(list)}${dropped.length > 3 ? `, and ${dropped.length - 3} more` : ""}.`);
+}
+
+/**
+ * The annual true-up, for NEM 2.0 households only.
+ *
+ * Two outcomes are reported and they are deliberately kept apart, because
+ * conflating them is the mistake this section exists to correct: the dollar
+ * credit balance is forfeited at the anniversary, while compensation depends
+ * only on whether the year exported more kilowatt-hours than it imported.
+ * Schedule NEM-ST SC 3(h): "If a customer has not generated excess kWhs, the
+ * customer is not eligible for NSC."
+ */
+function renderTrueUp(intervals, result) {
+  const wrap = $("trueup");
+  const show = nemMode() === "nem2" && intervals.length > 0;
+  $("trueup-wrap").classList.toggle("hidden", nemMode() !== "nem2");
+  wrap.classList.toggle("hidden", !show);
+  if (!show) return;
+
+  const date = trueUpDate(intervals);
+  const inferred = !$("trueup-date").value;
+  $("trueup-date-note").innerHTML = inferred
+    ? `Guessed from your file. Your bill prints the real one &mdash; ` +
+      `&ldquo;your NEM service will true-up on&nbsp;&hellip;&rdquo;.`
+    : `Set from your bill.`;
+  $("trueup-date-note").classList.toggle("inferred", inferred);
+
+  const periods = relevantPeriods(intervals[0].start, intervals.at(-1).start, date);
+  const period = periods.at(-1);
+  const t = trueUp({ intervals, period, ledger: result.ledger });
+
+  const kwh = (n) => `${Math.round(n).toLocaleString()} kWh`;
+  const partial = !t.complete
+    ? ` Your file covers only part of this period, so this is where the year stands so far, ` +
+      `not a settled result.`
+    : "";
+
+  $("trueup-outcome").innerHTML = t.netKWh < 0
+    ? `Between ${fmtDate(t.start)} and ${fmtDate(t.trueUp)} you exported ` +
+      `${kwh(-t.netKWh)} more than you imported.` +
+      (t.eligibleForNSC
+        ? ` That surplus qualifies for Net Surplus Compensation.`
+        : ` A full twelve months has to end that way to qualify for Net Surplus Compensation.`) +
+      partial
+    : `Between ${fmtDate(t.start)} and ${fmtDate(t.trueUp)} you imported ` +
+      `${kwh(t.netKWh)} more than you exported, so no compensation is due — ` +
+      `it is decided on kilowatt-hours, not on any credit balance.` + partial;
+
+  $("trueup-ledger").tBodies[0].innerHTML = t.months.map((m) => `<tr${m.trueUp ? ` class="trueup-row"` : ""}>
+      <td>${esc(m.month)}${m.trueUp ? " <span class=\"tag\">true-up</span>" : ""}</td>
+      <td class="num-col">${Math.round(m.netKWh).toLocaleString()}</td>
+      <td class="num-col">${money(m.energyDollars)}</td>
+      <td class="num-col">${m.cumulativeBalance < 0 ? money(-m.cumulativeBalance) + " cr" : money(m.cumulativeBalance)}</td>
+    </tr>`).join("");
+
+  const forfeit = t.forfeitedCredit;
+  $("trueup-note").innerHTML =
+    (forfeit > 0.005
+      ? `${money(forfeit)} of credit is standing at the true-up date. It is not paid out — ` +
+        `Schedule NEM-ST SC 3 hands it to the utility. `
+      : "") +
+    `Net Surplus Compensation is paid on surplus kilowatt-hours at a rate SDG&amp;E sets ` +
+    `monthly &mdash; a rolling twelve-month average of wholesale DLAP prices from 7am to 5pm, ` +
+    `published at sdge.com/nem. This calculator does not fetch it, so no dollar figure for the ` +
+    `payout is shown.`;
 }
 
 /**
@@ -549,7 +660,8 @@ function renderHeadline(results, intervals) {
             `allowed to and the bill lands on the Base Services Charge plus the non-bypassable ` +
             `charges on the power you did import, neither of which credits can offset. ` +
             `Several plans tie there, so the ranking falls back to the credit left over — ` +
-            `${money(best.unusedCredit)} here, paid out at a wholesale rate, not this one.`
+            `${money(best.unusedCredit)} here, which the utility keeps at your true-up date. ` +
+            `Whether you are paid anything depends on kilowatt-hours, not on that balance.`
           : ""}
       </div>
     </div>`;
@@ -586,7 +698,7 @@ function renderTable(results) {
     return `<tr data-plan="${esc(r.planId)}" class="${cls}" tabindex="0">
       <td>${esc(r.planName)}<span class="plan-sub">${esc(r.provider)}${r.pricingModel === "tiered" ? " · tiered" : ""}${
         r.lines.exportCredit > 0 ? ` · ${money(r.lines.exportCredit)} export credit` : ""}${
-        r.unusedCredit > 0.005 ? ` · ${money(r.unusedCredit)} credit left over` : ""}</span></td>
+        r.unusedCredit > 0.005 ? ` · ${money(r.unusedCredit)} credit forfeited at true-up` : ""}</span></td>
       <td class="num-col">${money(r.lines.delivery)}</td>
       <td class="num-col">${money(r.lines.generation)}</td>
       <td class="num-col">${money(r.lines.fixed)}</td>
@@ -624,8 +736,8 @@ function renderExcluded(excluded) {
 
 function renderCaveats() {
   const items = [
-    ["Solar is modelled; the annual true-up is not",
-     "NEM 2.0 nets exports against imports at retail, and NEM 3.0 credits them at SDG&E's published hourly export prices — both are implemented. What isn't: if you end the period holding credit, that is paid out at a wholesale rate that varies hourly, so a household generating more than it uses will do slightly better than shown."],
+    ["Solar and the true-up are modelled; the payout rate is not",
+     "NEM 2.0 nets exports against imports at retail, NEM 3.0 credits them at SDG&E's published hourly export prices, and for NEM 2.0 the annual true-up is worked out too: the credit standing at your anniversary is kept by the utility, and whether you are paid anything turns on kilowatt-hours, not on that balance — export more kWh than you import across the twelve months and the surplus earns Net Surplus Compensation, otherwise nothing is due no matter how much credit you banked. What isn't modelled is the rate that surplus is paid at. SDG&E resets it monthly from a rolling average of wholesale prices, so a household with genuine surplus does slightly better than shown."],
     ["What-if scenarios are modelled, not quoted",
      "The solar curve is a clear-sky model for a generic south-facing San Diego roof — it knows the sun's position exactly and knows nothing about weather, your roof's angle, or the tree next to it. That is why the annual output is yours to enter: put the number from a real quote in and only the shape is being assumed. The battery is scheduled by a simple rule that reacts to today's prices with no forecast, so a real system managed by its installer should beat what's shown here. Payback is arithmetic on the numbers you supplied and includes no tax credit, rebate, financing or degradation."],
     ["Eligibility is only enforced where the price would be meaningless",
@@ -999,7 +1111,7 @@ function renderProviderTable(rows) {
       .join(" ").trim();
     return `<tr class="${cls}">
       <td>${esc(r.name)}<span class="plan-sub">${esc(r.sub)}${
-        r.unusedCredit > 0.005 ? ` · ${money(r.unusedCredit)} credit left over` : ""}</span></td>
+        r.unusedCredit > 0.005 ? ` · ${money(r.unusedCredit)} credit forfeited at true-up` : ""}</span></td>
       <td class="num-col">${r.renewablePct == null ? "—" : `${r.renewablePct}%`}</td>
       <td class="num-col">${money(r.lines.generation)}</td>
       <td class="num-col">${money(r.lines.pcia)}</td>

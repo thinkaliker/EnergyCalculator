@@ -599,6 +599,86 @@ check("battery: a tiered plan is refused rather than mis-scheduled", (() => {
   } catch { return true; }
 })(), true);
 
+// --- annual true-up --------------------------------------------------------
+// Schedule NEM-ST SC 3: credit carries "until the end of the Relevant Period",
+// then the utility keeps it. Compensation is decided separately, and on kWh.
+
+import { billingMonths, relevantPeriods } from "../src/period.js";
+import { trueUp } from "../src/trueup.js";
+import { settleMonthlyCredits } from "../src/nem.js";
+
+// The reference bill's own cycle: reads on the 30th, 5/30 to 6/29, 31 days.
+const cycle = billingMonths(new Date(2026, 4, 30), new Date(2026, 6, 15), 30);
+check("billingMonths: window starts on the anniversary day", localDateKey(cycle[0].from), "2026-05-30");
+check("billingMonths: and ends the day before the next read", localDateKey(cycle[0].to), "2026-06-29");
+check("billingMonths: which is the 31 days the bill printed", cycle[0].days, 31);
+// February cannot have a 30th, so a cycle anchored there reads on the 28th and
+// the window is short. Assuming a fixed length would silently misdate a month.
+const feb = billingMonths(new Date(2027, 0, 30), new Date(2027, 2, 5), 30);
+check("billingMonths: clamps into short months", localDateKey(feb[1].from), "2027-02-28");
+
+// A ledger that banks credit, crosses an anniversary, then banks more.
+const twoPeriods = new Map([
+  ["2026-05", { energy: -40, netKWh: -100 }],
+  ["2026-06", { energy: -60, netKWh: -150 }],
+  ["2026-07", { energy: 10, netKWh: 30 }],
+]);
+const noReset = settleMonthlyCredits(twoPeriods);
+const withReset = settleMonthlyCredits(twoPeriods, { periodBoundaries: ["2026-06"] });
+check("settle: with no boundary the balance carries as before", noReset.unusedCredit, 90, 1e-9);
+check("settle: nothing is forfeited without a boundary", noReset.forfeitedCredit, 0, 1e-9);
+check("settle: a boundary forfeits the balance standing at it", withReset.forfeitedCredit, 100, 1e-9);
+// The month after the true-up opens at zero, so its $10 of energy is owed in
+// full rather than being cancelled by credit the utility already kept.
+check("settle: and the next period starts from zero", withReset.unusedCredit, 0, 1e-9);
+check("settle: so the charge survives the reset", withReset.energyCharges, 10, 1e-9);
+check("settle: ledger has one row per month", withReset.ledger.length, 3);
+check("settle: and marks which row is the true-up", withReset.ledger[1].trueUp, true);
+
+// The case the old UI described wrongly: banked dollars, but the year consumed
+// more kWh than it produced. SC 3(h) pays nothing for that.
+const consumerPeriod = {
+  start: new Date(2025, 6, 1), trueUp: new Date(2026, 6, 1), complete: true,
+  covered: { from: new Date(2025, 6, 1), to: new Date(2026, 6, 1) },
+};
+const netConsumer = trueUp({
+  intervals: solarDay(0.4, 0.1, 5).map((iv) => ({ ...iv, start: new Date(2026, 0, 5, iv.start.getHours()) })),
+  period: consumerPeriod,
+  ledger: [{ month: "2026-01", cumulativeBalance: -75 }],
+});
+check("trueup: a net kWh consumer is not eligible for NSC", netConsumer.eligibleForNSC, false);
+check("trueup: and is paid for no surplus at all", netConsumer.surplusKWh, 0, 1e-9);
+// Holding credit and being owed money are different things — this is the whole
+// point of the kWh test, so the two are asserted together.
+check("trueup: even while holding credit that is forfeited", netConsumer.forfeitedCredit, 75, 1e-9);
+
+const exporter = trueUp({
+  intervals: solarDay(0.1, 0.4, 5).map((iv) => ({ ...iv, start: new Date(2026, 0, 5, iv.start.getHours()) })),
+  period: consumerPeriod,
+  ledger: [],
+});
+check("trueup: a net kWh exporter is eligible", exporter.eligibleForNSC, true);
+check("trueup: surplus is the raw kWh difference", exporter.surplusKWh, 96 * 0.3, 1e-9);
+check("trueup: reported with the bill's sign convention", exporter.netKWh < 0, true);
+
+// Twelve months of data are required before any eligibility claim is made.
+const short = relevantPeriods(new Date(2026, 0, 1), new Date(2026, 5, 1), new Date(2026, 6, 15));
+check("relevantPeriods: a part-year file yields an incomplete period", short.at(-1).complete, false);
+const shortTrueUp = trueUp({
+  intervals: solarDay(0.1, 0.4, 5).map((iv) => ({ ...iv, start: new Date(2026, 2, 5, iv.start.getHours()) })),
+  period: short.at(-1),
+  ledger: [],
+});
+check("trueup: an incomplete period claims no eligibility", shortTrueUp.eligibleForNSC, false);
+check("trueup: even though it exported more than it imported", shortTrueUp.netKWh < 0, true);
+
+// A 13-month export straddles two anniversaries, which is exactly the case the
+// old uninterrupted carry got wrong.
+const straddle = relevantPeriods(new Date(2025, 5, 18), new Date(2026, 6, 18), new Date(2027, 4, 28));
+check("relevantPeriods: a 13-month file spans more than one period", straddle.length > 1, true);
+check("relevantPeriods: periods are 12 months apart",
+  straddle.at(-1).start.getFullYear() - straddle.at(-2).start.getFullYear(), 1);
+
 // --- error handling --------------------------------------------------------
 check("unknown plan throws", (() => {
   try { costPlan({ utility, planId: "nope", intervals: oneDay(0.1, 96) }); } catch (e) { return true; }

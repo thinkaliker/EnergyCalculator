@@ -133,20 +133,23 @@ export function createExportPricer({ exportTable, vintage, adderPerKWh = 0, cale
  * Settle a period's monthly energy balances.
  *
  * Credits roll forward month to month rather than being paid out, so a spring
- * month that ends in credit offsets an August that doesn't. Summing the signed
- * balances gives the same answer as carrying them — except at the end of the
- * period, where a customer left in credit is not paid it. They receive Net
- * Surplus Compensation at a wholesale rate instead, which is DLAP-indexed for
- * SDG&E and CAISO-indexed for SDCP, varies hourly, and is not modelled.
+ * month that ends in credit offsets an August that doesn't. Schedule NEM-ST
+ * SC 3(c) is explicit about both the carry and its limit: "The net value of
+ * energy exported over a monthly billing cycle shall be carried over to the
+ * following billing period and appear as a credit on the eligible
+ * customer-generator's account, until the end of the Relevant Period."
  *
- * So: clamp the energy charge at zero and report what was left over, rather
- * than quietly booking a negative bill.
+ * At that boundary the carry stops and the balance does not survive — SC 3:
+ * "once the true-up is completed at the end of the Relevant Period, any credit
+ * for excess energy (kWh) will be retained by the Utility and the net producer
+ * will not be owed any compensation for this excess energy." What a net
+ * producer gets instead is Net Surplus Compensation, and SC 3(h) makes that a
+ * *kWh* test rather than a dollar one, settled in src/trueup.js. The dollars
+ * counted here are simply forfeited.
  *
- * Because credits carry with no monthly settlement, the clamped total is the
- * same whether the months are walked or the whole period is summed at once. The
- * walk is still worth doing for what it reveals — how many months ended in
- * credit is the difference between a system that covers the year and one that
- * only covers spring.
+ * Pass `periodBoundaries` — month keys that each *end* a Relevant Period — to
+ * model that reset. With none supplied the walk is the old uninterrupted carry,
+ * which keeps every non-solar caller bit-identical.
  *
  * Not modelled: the minimum bill is still applied once across the period rather
  * than in every month, so a household that nets to nothing month after month is
@@ -154,14 +157,35 @@ export function createExportPricer({ exportTable, vintage, adderPerKWh = 0, cale
  * per-month bill, not just per-month energy, and only EV-TOU carries a minimum
  * bill at all.
  */
-export function settleMonthlyCredits(byMonth) {
+export function settleMonthlyCredits(byMonth, { periodBoundaries = [] } = {}) {
+  const boundaries = new Set(periodBoundaries);
   let balance = 0;
   let monthsInCredit = 0;
+  let forfeitedCredit = 0;
+  const ledger = [];
 
   for (const month of [...byMonth.keys()].sort()) {
-    const { energy } = byMonth.get(month);
+    const { energy, netKWh = 0 } = byMonth.get(month);
+    const opening = balance;
     balance += energy;
     if (energy < 0) monthsInCredit++;
+
+    // The bill's own columns: what this month's energy cost, how much stored
+    // credit went to cancelling it, and what is left carrying forward.
+    ledger.push({
+      month,
+      netKWh,
+      energyDollars: energy,
+      appliedCredits: opening < 0 ? Math.min(-opening, Math.max(energy, 0)) : 0,
+      remainingCredits: balance < 0 ? -balance : 0,
+      cumulativeBalance: balance,
+      trueUp: boundaries.has(month),
+    });
+
+    if (boundaries.has(month)) {
+      if (balance < 0) forfeitedCredit += -balance;
+      balance = 0;
+    }
   }
 
   return {
@@ -169,5 +193,8 @@ export function settleMonthlyCredits(byMonth) {
     monthsInCredit,
     // Dollars of credit the customer ends the period holding and is not paid.
     unusedCredit: balance < 0 ? -balance : 0,
+    // Dollars zeroed at a true-up date that the file actually spans.
+    forfeitedCredit,
+    ledger,
   };
 }

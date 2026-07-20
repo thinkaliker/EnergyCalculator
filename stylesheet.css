@@ -323,6 +323,24 @@ td.total { font-weight: 650; }
 
 .footnote { font-size: 0.83rem; color: var(--text-dim); margin: 12px 0 0; }
 
+/* --- true-up ----------------------------------------------------------- */
+
+#trueup { margin-top: 34px; }
+#trueup h3 { font-size: 1.05rem; margin: 0 0 4px; }
+#trueup-outcome { margin: 0 0 14px; color: var(--text); }
+#trueup table { min-width: 420px; }
+/* The anniversary row is where the balance stops carrying, so it gets a rule
+   under it — the ledger reads as two periods rather than one long run. */
+tbody tr.trueup-row td { border-bottom: 2px solid var(--accent); }
+.tag {
+  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
+  background: var(--accent-soft); color: var(--accent); padding: 1px 6px;
+  border-radius: 4px; vertical-align: middle;
+}
+/* An inferred true-up date is a guess, and must not read with the same
+   confidence as one the user copied off their bill. */
+small.inferred { color: var(--warn); }
+
 #provider-table-wrap { margin-top: 34px; }
 #provider-table-wrap h3 { font-size: 1.05rem; margin: 0 0 4px; }
 #provider-table-wrap .lede.small { margin: 0 0 14px; }

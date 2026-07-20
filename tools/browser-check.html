@@ -512,8 +512,8 @@ async function run() {
   // are allowed to cancel, and lands on the Base Services Charge — the same
   // figure on every plan that carries it. The totals column then stops
   // distinguishing them, so the ranking falls back to the credit left over, and
-  // that has to stay labelled as credit: it settles at a wholesale rate, not the
-  // retail one the totals are in.
+  // that has to stay labelled as credit rather than as savings: the utility
+  // keeps it at the true-up date, so it is never money in anyone's pocket.
   //
   // Scale 8 is what it takes for midday export credit to outweigh evening peak
   // import on this shape — NEM 2.0 nets inside a TOU period, so cheap midday
@@ -534,14 +534,14 @@ async function run() {
     money(tied[0].cells[5]) > money(tied[0].cells[3]),
     `total ${tied[0].cells[5].textContent.trim()} vs fixed ${tied[0].cells[3].textContent.trim()}`);
   check("tied rows still report their leftover credit",
-    tied.every((r) => /credit left over/.test(r.cells[0].textContent)),
+    tied.every((r) => /credit forfeited at true-up/.test(r.cells[0].textContent)),
     tied.map((r) => r.cells[0].textContent.trim().split("\n").pop()).join(" | "));
   check("only one row is starred even when the totals tie",
     [...doc.querySelectorAll("#ranking tbody tr.best")].length === 1,
     `${doc.querySelectorAll("#ranking tbody tr.best").length} starred`);
   // Within a tie the credit is the whole ranking, so it must be ordered by it.
   check("tied rows are ordered by leftover credit, most first", (() => {
-    const credit = (r) => Number(r.cells[0].textContent.match(/\$([\d,.]+) credit left over/)?.[1]
+    const credit = (r) => Number(r.cells[0].textContent.match(/\$([\d,.]+) credit forfeited at true-up/)?.[1]
       .replace(/,/g, "") ?? 0);
     return tied.every((r, i) => i === 0 || credit(r) <= credit(tied[i - 1]));
   })(), tied.map((r) => r.cells[0].textContent.match(/\$[\d,.]+ credit/)?.[0]).join(" | "));
@@ -566,6 +566,52 @@ async function run() {
     provTied.map((r) => r.cells[5].textContent.trim()).join(" "));
   check("vs-cheapest falls back to the credit gap rather than a row of dashes",
     /less credit/.test(provTied[1].cells[6].textContent), provTied[1].cells[6].textContent.trim());
+
+  // --- annual true-up --------------------------------------------------------
+  // Only NEM 2.0 has a Relevant Period, so the section and its date field appear
+  // for nem2 and for nothing else.
+  const trueup = doc.getElementById("trueup");
+  check("the true-up section shows for a NEM 2.0 household",
+    !trueup.classList.contains("hidden"), trueup.className);
+  check("and its date field shows with it",
+    !doc.getElementById("trueup-wrap").classList.contains("hidden"), "");
+  check("the ledger has a row per billing month",
+    doc.querySelectorAll("#trueup-ledger tbody tr").length > 0,
+    `${doc.querySelectorAll("#trueup-ledger tbody tr").length} rows`);
+  // This fixture exports far more than it imports, so the kWh test passes and
+  // the wording must say so.
+  check("a net kWh exporter is told the surplus qualifies",
+    /qualifies for Net Surplus Compensation|has to end that way/.test(
+      doc.getElementById("trueup-outcome").textContent),
+    doc.getElementById("trueup-outcome").textContent.slice(0, 120));
+  // The payout is never given a dollar figure, because the rate is not modelled.
+  check("no dollar figure is invented for the payout",
+    /does not fetch it/.test(doc.getElementById("trueup-note").textContent),
+    doc.getElementById("trueup-note").textContent.slice(0, 80));
+  // An inferred date is a guess and is marked as one.
+  check("an inferred true-up date is flagged as guessed",
+    doc.getElementById("trueup-date-note").classList.contains("inferred"),
+    doc.getElementById("trueup-date-note").textContent.slice(0, 60));
+
+  // Entering the real date moves the period, so the ledger must change with it.
+  const beforeRows = doc.querySelectorAll("#trueup-ledger tbody tr").length;
+  const dateField = doc.getElementById("trueup-date");
+  dateField.value = "2027-03-15";
+  dateField.dispatchEvent(new win.Event("change", { bubbles: true }));
+  await settle(300);
+  check("entering a true-up date stops it being flagged as guessed",
+    !doc.getElementById("trueup-date-note").classList.contains("inferred"),
+    doc.getElementById("trueup-date-note").textContent.slice(0, 60));
+  check("and re-anchors the ledger to that anniversary",
+    doc.querySelectorAll("#trueup-ledger tbody tr").length !== beforeRows ||
+      doc.getElementById("trueup-outcome").textContent.includes("Mar"),
+    doc.getElementById("trueup-outcome").textContent.slice(0, 100));
+
+  // A household with no solar has no Relevant Period at all.
+  setSelect(win, doc, "nem", "none");
+  await settle(300);
+  check("the true-up section disappears without solar",
+    doc.getElementById("trueup").classList.contains("hidden"), "");
 
   check("no uncaught errors during the run", errors.length === 0, errors.join(" | "));
 

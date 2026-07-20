@@ -14,6 +14,8 @@ import { readFileSync } from "node:fs";
 import { parseIntervals, localDateKey } from "../src/parse.js";
 import { costPlan } from "../src/cost.js";
 import { createCalendar, resolveHolidays } from "../src/calendar.js";
+import { billingMonths } from "../src/period.js";
+import { trueUp } from "../src/trueup.js";
 
 const csvPath = process.argv[2];
 if (!csvPath) {
@@ -109,6 +111,16 @@ const EXPORTER_BILL = {
   // From the Net Energy Metering Summary, which totals the whole bill period
   // rather than splitting it by season the way the charge detail does.
   touByMonth: [["2026-05-30", "2026-06-29", { On: -171, Off: -364, Super: -296 }]],
+  // From the Net Energy Metering Summary, which prints the Relevant Period
+  // outright: a 12-month window with a named start and true-up date. Note the
+  // kWh balance is the raw signed total, not the TOU-netted figure the charge
+  // detail uses — SC 3(h) settles net surplus on the former.
+  trueUp: {
+    start: "2026-05-30",
+    date: "2027-05-28",
+    firstBillingMonthDays: 31,
+    relevantPeriodKWh: -831.42,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -351,6 +363,53 @@ function verifyNem2(allIntervals, srcMeta, srcWarnings, B) {
     }
   }
   failed += touFails;
+
+  // The Relevant Period, which the bill prints in full: start date, true-up
+  // date, and the running kWh balance that SC 3(h) settles surplus on. This
+  // bill is the first month of its period, so the balance printed is simply
+  // this month's — which is what makes it checkable at all.
+  if (B.trueUp) {
+    const asDate = (s) => {
+      const [y, m, d] = s.split("-").map(Number);
+      return new Date(y, m - 1, d);
+    };
+    const [ty, tm, td] = B.trueUp.date.split("-").map(Number);
+    const period = {
+      start: asDate(B.trueUp.start),
+      trueUp: asDate(B.trueUp.date),
+      complete: false, // the data stops long before the anniversary
+      // Clamped to the bill's own window, so what we compute is the balance as
+      // of this statement — which is the number the bill actually prints.
+      covered: { from: asDate(B.trueUp.start), to: asDate(B.to) },
+    };
+    const t = trueUp({ intervals: sel, period, ledger: r.ledger });
+    const cycleDays = billingMonths(period.start, period.start, td)[0].days;
+
+    const trueUpChecks = [
+      ["Relevant period kWh", t.netKWh, B.trueUp.relevantPeriodKWh, 1],
+      ["Billing cycle days", cycleDays, B.trueUp.firstBillingMonthDays, 0],
+    ];
+    console.log(`\n${"true-up".padEnd(w)} ${"computed".padStart(10)} ${"bill".padStart(10)}`);
+    for (const [label, got, want, tol] of trueUpChecks) {
+      const ok = Math.abs(got - want) <= tol;
+      if (!ok) failed++;
+      console.log(`${label.padEnd(w)} ${fmt(got).padStart(10)} ${fmt(want).padStart(10)}  ${ok ? "ok" : "FAIL"}`);
+    }
+
+    // Structural, not numeric. The bill lists Non-Bypassable Charges outside the
+    // credit ledger and bills them monthly, so a standing credit balance must
+    // not reduce them — SC 3, "cannot be offset by generation credits". This
+    // account ends the month deep in credit and still owes the full NBC line, so
+    // the two conditions together are the assertion.
+    const inCredit = r.ledger.length > 0 && r.ledger.at(-1).cumulativeBalance < 0;
+    const ok = inCredit && r.total >= r.lines.nonbypassable - 1e-9;
+    if (!ok) failed++;
+    console.log(`${"NBC survives a credit balance".padEnd(w)} ${(ok ? "yes" : "no").padStart(10)} ` +
+      `${"yes".padStart(10)}  ${ok ? "ok" : "FAIL"}`);
+    console.log(`${"True-up date".padEnd(w)} ${localDateKey(t.trueUp).padStart(10)} ` +
+      `${B.trueUp.date.padStart(10)}  ${localDateKey(t.trueUp) === B.trueUp.date ? "ok" : "FAIL"}`);
+    if (localDateKey(t.trueUp) !== B.trueUp.date) failed++;
+  }
 
   for (const warn of srcWarnings) console.log(`\nWARN ${warn}`);
   for (const warn of r.warnings) console.log(`WARN ${warn}`);

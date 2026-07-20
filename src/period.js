@@ -74,6 +74,77 @@ export function selectPeriod(intervals, mode) {
 }
 
 /**
+ * The billing months between two dates, anchored on a meter-read day.
+ *
+ * A billing period runs read to read: the reference bill covers 5/30 to 6/29,
+ * 31 days, which is neither a calendar month nor a fixed number of days. Given
+ * the anniversary day, each window starts on that day and ends the day before
+ * the next one.
+ *
+ * `anniversaryDay` above 28 is clamped into short months, so a cycle anchored on
+ * the 30th reads on Feb 28. That is what makes the window length vary, and it
+ * is why the day count is returned rather than assumed.
+ */
+export function billingMonths(from, to, anniversaryDay) {
+  if (!anniversaryDay) return [];
+  const months = [];
+  const dayIn = (y, m) => Math.min(anniversaryDay, new Date(y, m + 1, 0).getDate());
+
+  // Step back to the read on or before `from`, so the first window is whole.
+  let y = from.getFullYear();
+  let m = from.getMonth();
+  if (from.getDate() < dayIn(y, m)) m -= 1;
+
+  for (;;) {
+    const start = new Date(y, m, dayIn(y, m));
+    const next = new Date(y, m + 1, dayIn(y, m + 1));
+    const end = new Date(next.getFullYear(), next.getMonth(), next.getDate() - 1);
+    if (start > to) break;
+    months.push({
+      from: start,
+      to: end,
+      days: Math.round((next - start) / 86400000),
+    });
+    y = next.getFullYear();
+    m = next.getMonth();
+  }
+  return months;
+}
+
+/**
+ * Split a span into Relevant Periods working backwards from the true-up date.
+ *
+ * Schedule NEM-ST SC 3 defines the Relevant Period as the 12 months ending at
+ * the customer's anniversary, so the true-up date fixes the whole grid. Working
+ * backwards rather than forwards from the file's first day matters: the period
+ * the user cares about is the one their next true-up settles, and a 13-month
+ * export straddles two of them.
+ *
+ * Each period reports whether the data actually covers all twelve months —
+ * `complete` false means no eligibility claim should be made from it.
+ */
+export function relevantPeriods(from, to, trueUpDate) {
+  if (!trueUpDate) return [];
+  const periods = [];
+  const day = trueUpDate.getDate();
+
+  // Walk anniversaries back until one lands at or before the data starts.
+  let end = new Date(trueUpDate);
+  while (end > from) {
+    const start = new Date(end.getFullYear() - 1, end.getMonth(), end.getDate());
+    periods.unshift({
+      start,
+      trueUp: end,
+      anniversaryDay: day,
+      complete: start >= from && end <= to,
+      covered: { from: start < from ? from : start, to: end > to ? to : end },
+    });
+    end = start;
+  }
+  return periods;
+}
+
+/**
  * Describe what the selected period actually covers, so the result can be
  * labelled honestly rather than presented as an annual figure.
  */
