@@ -67,9 +67,20 @@ async function importCsv(win, doc, text, { open = true } = {}) {
   dt.items.add(file);
   const input = doc.getElementById("file");
   input.files = dt.files;
+  // Empty the table first, so waiting for rows waits for THIS import.
+  //
+  // Without it the rows from the previous import are still standing, the wait
+  // below returns immediately, and everything after runs against a page that has
+  // not reloaded yet — in particular the clicks in openAllSteps landed before
+  // readFile's resetSteps(), which then collapsed the steps back underneath
+  // them. That failed two runs in three, and looked like a bug in the step
+  // navigation rather than in this helper.
+  doc.querySelector("#ranking tbody").innerHTML = "";
   input.dispatchEvent(new win.Event("change"));
-  // FileReader is async and the re-cost that follows prices every plan. Wait for
-  // the table to actually repopulate rather than guessing at a duration.
+  // FileReader is async, but the recompute it triggers is not: rows, charts and
+  // panels are all written in one synchronous block. So seeing a row means that
+  // whole block has finished, charts included — a poll cannot observe a state
+  // part way through it.
   await waitFor(() => doc.querySelectorAll("#ranking tbody tr").length > 0);
   await settle(150);
   // Loading a file collapses the page back to step 1, so walk it open again.
@@ -146,7 +157,13 @@ async function run() {
   win.addEventListener("error", (e) => errors.push(e.message));
   win.addEventListener("unhandledrejection", (e) => errors.push(String(e.reason)));
 
-  await settle(1200);
+  // Wait for the page to say it is wired rather than guessing at a duration.
+  // init() fetches the rate index, every rate file, the history manifest and the
+  // profile library before attaching a single listener, so a fixed timer that is
+  // generous on an idle machine is not generous on a loaded one — clicks landed
+  // before the step navigation existed, and the suite failed roughly two runs in
+  // three for reasons that had nothing to do with the code under test.
+  await waitFor(() => doc.documentElement.dataset.ready === "true");
   check("page booted without an error notice", !doc.querySelector(".notice.warn"),
     doc.querySelector(".notice.warn")?.textContent ?? "");
   // The provider list is filtered to whoever actually serves the selected city,

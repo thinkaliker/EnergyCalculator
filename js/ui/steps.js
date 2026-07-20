@@ -15,7 +15,11 @@
 
 import { $ } from "./dom.js";
 import { state } from "./state.js";
-import { resizeCharts } from "./charts.js";
+// Called after a step is opened. main.js supplies it — a step becoming visible
+// is the moment its charts can be built at a real size, and steps.js cannot
+// import main.js to trigger that without a cycle.
+let onReveal = () => {};
+export const setOnReveal = (fn) => { onReveal = fn; };
 
 // Document order, and the order the next buttons walk. Step 1 is not in the
 // list because it is never hidden, and neither is the caveats section — it
@@ -25,13 +29,19 @@ const GATED = ["step-setup", "step-results", "step-load"];
 
 let revealed = 0;
 
-function apply() {
+function apply({ redraw = true } = {}) {
   GATED.forEach((id, i) => $(id)?.classList.toggle("hidden", i >= revealed));
   syncStepNav();
-  // A chart built inside a hidden section measured 0x0 and would stay that way.
-  // Opening a step is not a container resize as far as Chart.js is concerned,
-  // so the re-measure has to be triggered here.
-  resizeCharts();
+  if (!redraw) return;
+  // Re-render now that the sections have their real size.
+  //
+  // A canvas inside a `display: none` section measures 0x0, and Chart.js keeps
+  // that size — a section being unhidden is not a container resize it watches
+  // for. Asking the existing charts to resize afterwards was not reliable
+  // either: there are no rendered pixels to scale up, and forcing a repaint
+  // still lost a race roughly one run in six. Building them fresh against a
+  // visible container has no such window.
+  onReveal();
 }
 
 /**
@@ -50,7 +60,10 @@ export function revealStep(id) {
  *  described the previous household are re-confirmed rather than inherited. */
 export function resetSteps() {
   revealed = 0;
-  apply();
+  // No redraw: this runs while a new file is still being read, and the costing
+  // that follows will render everything anyway. Asking for one here would cost a
+  // full re-rank against a timeline that has not been resolved yet.
+  apply({ redraw: false });
 }
 
 /**

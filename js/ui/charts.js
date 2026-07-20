@@ -17,24 +17,6 @@ export function destroy(key) {
   if (charts[key]) { charts[key].destroy(); delete charts[key]; }
 }
 
-/**
- * Re-measure every chart against its container.
- *
- * Needed because the steps now render before they are shown. A canvas built
- * inside a `display: none` section measures 0x0, and Chart.js keeps that size —
- * it watches for container resizes, and a section being unhidden is not one.
- * Without this, opening step 3 shows empty boxes where the charts should be.
- */
-export function resizeCharts() {
-  for (const c of Object.values(charts)) {
-    c.resize();
-    // resize() lays out but does not repaint what was never painted — a chart
-    // built at 0x0 has no rendered pixels to scale up. "none" skips the
-    // animation, so the chart is complete on the frame the step opens rather
-    // than fading in after it.
-    c.update("none");
-  }
-}
 
 function baseOptions(extra = {}) {
   const grid = css("--line");

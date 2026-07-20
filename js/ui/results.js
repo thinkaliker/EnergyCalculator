@@ -376,26 +376,6 @@ export function renderProviderTable(rows) {
   }).join("");
 }
 
-export function renderCaveats() {
-  const items = [
-    ["Solar and the true-up are modelled; the payout rate is not",
-     "NEM 2.0 nets exports against imports at retail, NEM 3.0 credits them at SDG&E's published hourly export prices, and for NEM 2.0 the annual true-up is worked out too: the credit standing at your anniversary is kept by the utility, and whether you are paid anything turns on kilowatt-hours, not on that balance — export more kWh than you import across the twelve months and the surplus earns Net Surplus Compensation, otherwise nothing is due no matter how much credit you banked. What isn't modelled is the rate that surplus is paid at. SDG&E resets it monthly from a rolling average of wholesale prices, so a household with genuine surplus does slightly better than shown."],
-    ["What-if scenarios are modelled, not quoted",
-     "The solar curve is a clear-sky model for a generic south-facing San Diego roof — it knows the sun's position exactly and knows nothing about weather, your roof's angle, or the tree next to it. That is why the annual output is yours to enter: put the number from a real quote in and only the shape is being assumed. The battery is scheduled by a simple rule that reacts to today's prices with no forecast, so a real system managed by its installer should beat what's shown here. Payback is arithmetic on the numbers you supplied and includes no tax credit, rebate, financing or degradation."],
-    ["Eligibility is only enforced where the price would be meaningless",
-     "Two rules are enforced: a solar tariff drops the plans it forbids, and EV-TOU is hidden unless you say you have a separately metered charger, because it prices a meter your usage file does not describe. Everything else is priced whether or not you qualify — TOU-ELEC is capped at 10,000 customers, and the EV plans need a registered EV."],
-    ["EV-TOU is priced as one meter, and it is really two",
-     "If you tick the separately metered charger box, EV-TOU is costed by running your whole-home file through it. That is not what such a bill looks like: the house sits on a whole-home schedule and only the charger sits on EV-TOU, so a real customer gets two sets of charges. Splitting them means guessing how much of your usage was charging, which the file does not record. Nothing here has been checked against an actual EV-TOU bill. Treat its total as a rough single-meter approximation, not a quote — and note it is also the only residential schedule with no Base Services Charge, which flatters it against every other plan."],
-    ["One rate revision per period",
-     "Rates change several times a year. The calculator applies a single set to the whole period, which introduces a small error when your data spans a change."],
-    ["Some fees are inferred, not published",
-     "The franchise fee bases were derived from a real bill and reproduce it to the cent, but they are not stated in any tariff. Climate credits and other one-off bill credits are not included."],
-  ];
-  $("caveats").innerHTML = items
-    .map(([t, d]) => `<div class="caveat"><b>${t}</b><p>${d}</p></div>`)
-    .join("");
-}
-
 const REPO = "https://github.com/thinkaliker/EnergyCalculator";
 
 /**

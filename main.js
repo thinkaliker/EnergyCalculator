@@ -19,7 +19,7 @@ import {
 import { activeIntervals, costOptions } from "./js/ui/compute.js";
 import {
   renderTrimNote, renderTrueUp, renderCoverage, meterEligiblePlans, byCost,
-  renderHeadline, renderTable, renderExcluded, renderCaveats, renderRateRevisions,
+  renderHeadline, renderTable, renderExcluded, renderRateRevisions,
   renderProvenance, renderBuildInfo, providerRows, renderProviderTable,
 } from "./js/ui/results.js";
 import {
@@ -28,7 +28,7 @@ import {
 import {
   drawPlanChart, drawShapeChart, drawMonthlyChart, drawProviderChart,
 } from "./js/ui/charts.js";
-import { initStepNav, syncStepNav, resetSteps } from "./js/ui/steps.js";
+import { initStepNav, syncStepNav, resetSteps, setOnReveal } from "./js/ui/steps.js";
 
 async function init() {
   const index = await getJSON("rates/index.json");
@@ -59,12 +59,14 @@ async function init() {
   buildProviderSelect();
   buildVintageSelect();
   buildNbtVintageSelect();
-  renderCaveats();
   renderProvenance(index);
 
   await loadProfiles();
 
   initStepNav();
+  // Opening a step is the first moment its canvases have a real size, so the
+  // charts inside it have to be built then rather than while it was hidden.
+  setOnReveal(() => { if (state.raw.length) recompute(); });
 
   $("pick").addEventListener("click", () => $("file").click());
   $("file").addEventListener("change", (e) => e.target.files[0] && readFile(e.target.files[0]));
@@ -113,6 +115,13 @@ async function init() {
   // A 404 is the normal case for a locally served copy, so a failure here just
   // leaves the source link standing alone.
   getJSON("build-info.json").then(renderBuildInfo).catch(() => {});
+
+  // Set once every control above is wired. Nothing on the page reads it — it
+  // exists so tools/browser-check.html can wait for the page to be usable
+  // instead of guessing at a duration. init() makes a dozen-odd fetches before
+  // reaching this line, and a fixed timer that is generous on an idle machine
+  // is not generous on a busy one; the suite raced it intermittently.
+  document.documentElement.dataset.ready = "true";
 }
 
 async function loadProfiles() {

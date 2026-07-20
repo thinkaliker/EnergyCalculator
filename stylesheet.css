@@ -92,6 +92,17 @@ h1 em { font-style: normal; color: var(--accent); }
 }
 .lede.small { font-size: 0.95rem; }
 
+/* The masthead and footer run the full width of .wrap, matching the h1 above
+   them and the step panels below.
+
+   The `ch` caps they used to carry were measured against each element's own
+   font size, so the three of them landed on three different right edges — and
+   inverted: the footer's 72ch, at 0.83rem, came out narrower than the lede's
+   62ch at 1.06rem. Anything that wants a reading measure back should take one
+   value, in absolute units, rather than a per-element `ch`. */
+.masthead .lede,
+.masthead .privacy { max-width: none; }
+
 .privacy {
   margin: 0;
   padding: 12px 16px;
@@ -398,7 +409,7 @@ footer {
   font-size: 0.83rem;
   max-width: 1080px;
 }
-footer p { margin: 0 0 8px; max-width: 72ch; }
+footer p { margin: 0 0 8px; }
 footer a { color: inherit; }
 .colophon code {
   font-family: var(--mono);
