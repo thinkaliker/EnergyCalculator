@@ -28,6 +28,7 @@ import {
 import {
   drawPlanChart, drawShapeChart, drawMonthlyChart, drawProviderChart,
 } from "./js/ui/charts.js";
+import { initStepNav, syncStepNav, resetSteps } from "./js/ui/steps.js";
 
 async function init() {
   const index = await getJSON("rates/index.json");
@@ -148,6 +149,10 @@ function readFile(file) {
       const { intervals, warnings, meta } = parseIntervals(reader.result);
       state.raw = intervals;
       state.selectedPlanId = null;
+      // A different file is a different household. Collapse back to step 1 so
+      // the zone, provider and solar answers get re-confirmed against it rather
+      // than silently carrying over from whoever was loaded before.
+      resetSteps();
       showImport(meta, warnings);
       // Before costing, since which revisions apply changes every figure below.
       await loadHistoryFor(intervals);
@@ -214,39 +219,6 @@ function showImport(meta, warnings) {
   $("period-notes").innerHTML = warnings.map((w) => notice("warn", "Note", esc(w))).join("");
 }
 
-// --- step navigation -------------------------------------------------------
-
-/**
- * Wire each step's "next" button to scroll to the step it names. The buttons
- * live in the markup so the pairing is visible there rather than in a table
- * here, and each one hides itself whenever its target is missing or still
- * hidden — offering to jump to results before a file is loaded would advertise
- * a step that has nothing in it.
- */
-function initStepNav() {
-  for (const btn of document.querySelectorAll("[data-next]")) {
-    btn.addEventListener("click", () => {
-      const target = $(btn.dataset.next);
-      if (!target || target.classList.contains("hidden")) return;
-      const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      target.scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "start" });
-      // Move focus too, or a keyboard user gets scrolled somewhere their next
-      // Tab doesn't continue from.
-      target.setAttribute("tabindex", "-1");
-      target.focus({ preventScroll: true });
-    });
-  }
-  syncStepNav();
-}
-
-function syncStepNav() {
-  for (const btn of document.querySelectorAll("[data-next]")) {
-    const target = $(btn.dataset.next);
-    const ready = target && !target.classList.contains("hidden");
-    btn.closest(".step-nav").classList.toggle("hidden", !ready);
-  }
-}
-
 // --- compute ---------------------------------------------------------------
 
 function recompute() {
@@ -259,9 +231,9 @@ function recompute() {
     return;
   }
 
-  $("step-setup").classList.remove("hidden");
-  $("step-results").classList.remove("hidden");
-  $("step-load")?.classList.remove("hidden");
+  // Steps 2-4 are opened by their own next buttons, not by having data. Every
+  // panel below still renders — into hidden sections if the user has not walked
+  // that far — so revealing a step never has to wait on a recompute.
   syncStepNav();
 
   renderTrimNote(dropped);

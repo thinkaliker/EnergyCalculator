@@ -61,7 +61,7 @@ function syntheticCsv({ solar = false, exportScale = 1, start: startDate = null,
 }
 
 /** Push a CSV through the real file input and let the page settle. */
-async function importCsv(win, doc, text) {
+async function importCsv(win, doc, text, { open = true } = {}) {
   const file = new win.File([text], "test.csv", { type: "text/csv" });
   const dt = new win.DataTransfer();
   dt.items.add(file);
@@ -72,6 +72,27 @@ async function importCsv(win, doc, text) {
   // the table to actually repopulate rather than guessing at a duration.
   await waitFor(() => doc.querySelectorAll("#ranking tbody tr").length > 0);
   await settle(150);
+  // Loading a file collapses the page back to step 1, so walk it open again.
+  // Every assertion after an import is about what the steps contain, not about
+  // the gating itself — that is tested on its own below.
+  if (open) await openAllSteps(win, doc);
+}
+
+/**
+ * Click through the next buttons until the whole page is showing.
+ *
+ * Deliberately not a shortcut that strips the `hidden` class: the point is to
+ * exercise the same path a user takes, so a broken next button fails the suite
+ * rather than being papered over.
+ */
+async function openAllSteps(win, doc) {
+  for (const id of ["step-setup", "step-results", "step-load"]) {
+    const btn = doc.querySelector(`[data-next="${id}"]`);
+    if (btn && !btn.closest(".step-nav").classList.contains("hidden")) {
+      btn.click();
+      await settle(120);
+    }
+  }
 }
 
 /**
@@ -148,8 +169,25 @@ async function run() {
     [...doc.getElementById("nem").options].map((o) => o.value).join(),
     "none,nem2,nem3");
 
-  // Feed the synthetic export through the real file input.
-  await importCsv(win, doc, syntheticCsv());
+  // Feed the synthetic export through the real file input. This first one is
+  // imported without walking the steps open, so the gating can be checked in the
+  // state a real user lands in.
+  await importCsv(win, doc, syntheticCsv(), { open: false });
+
+  const stillHidden = (id) => doc.getElementById(id).classList.contains("hidden");
+  check("loading a file does not open steps 2-4 by itself",
+    stillHidden("step-setup") && stillHidden("step-results") && stillHidden("step-load"),
+    [stillHidden("step-setup"), stillHidden("step-results"), stillHidden("step-load")].join());
+  // The ranking is computed regardless — the steps gate what is shown, not what
+  // is calculated, so opening one never has to wait on a recompute.
+  check("the ranking is costed even while step 3 is closed",
+    doc.querySelectorAll("#ranking tbody tr").length >= 8);
+  check("step 1's next button appears once there is data",
+    !doc.querySelector('[data-next="step-setup"]').closest(".step-nav").classList.contains("hidden"));
+  check("later steps offer no next button while closed",
+    doc.querySelector('[data-next="step-load"]').closest(".step-nav").classList.contains("hidden"));
+
+  await openAllSteps(win, doc);
 
   const rows = [...doc.querySelectorAll("#ranking tbody tr")];
   check("ranking table populated", rows.length >= 8, `${rows.length} rows`);
@@ -438,14 +476,38 @@ async function run() {
   await settle(500);
 
   // --- step navigation -----------------------------------------------------
+  // openAllSteps has already walked the page open, so this is the state after a
+  // full pass: everything visible, every next button offered.
   const nav = (id) => doc.querySelector(`[data-next="${id}"]`).closest(".step-nav");
-  check("next buttons appear once their target step exists",
+  const hidden = (id) => doc.getElementById(id).classList.contains("hidden");
+  check("walking the next buttons opens every step",
+    !hidden("step-setup") && !hidden("step-results") && !hidden("step-load"),
+    [hidden("step-setup"), hidden("step-results"), hidden("step-load")].join());
+  check("next buttons are offered once their step is open",
     !nav("step-setup").classList.contains("hidden") &&
     !nav("step-results").classList.contains("hidden"), "");
   doc.querySelector('[data-next="step-results"]').click();
   await settle(200);
   check("clicking next focuses the step it names",
     doc.activeElement?.id === "step-results", doc.activeElement?.id ?? "none");
+
+  // Re-clicking an earlier next button must not walk the sequence backwards —
+  // the controls in an open step stay live, and collapsing the one just edited
+  // would hide the effect of the edit.
+  doc.querySelector('[data-next="step-setup"]').click();
+  await settle(150);
+  check("revealing an earlier step leaves the later ones open",
+    !hidden("step-results") && !hidden("step-load"), "");
+
+  // The way back to the file picker scrolls without touching visibility.
+  const back = doc.querySelector('[data-scroll="step-import"]');
+  check("step 4 offers a way back to the file picker",
+    !!back && !back.closest(".step-nav").classList.contains("hidden"), "");
+  back.click();
+  await settle(200);
+  check("starting over focuses step 1 and hides nothing",
+    doc.activeElement?.id === "step-import" && !hidden("step-results"),
+    doc.activeElement?.id ?? "none");
 
   // A city with no CCA has nothing to compare against, so the block hides
   // rather than showing a one-row table with a "vs cheapest" of zero.
