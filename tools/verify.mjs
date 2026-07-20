@@ -11,12 +11,12 @@
 // the engine without carrying anyone's address around.
 
 import { readFileSync, readdirSync } from "node:fs";
-import { parseIntervals, localDateKey } from "../src/parse.js";
-import { costPlan } from "../src/cost.js";
-import { buildHistory } from "../src/revisions.js";
-import { createCalendar, resolveHolidays } from "../src/calendar.js";
-import { billingMonths } from "../src/period.js";
-import { trueUp } from "../src/trueup.js";
+import { parseIntervals, localDateKey } from "../js/parse.js";
+import { costPlan } from "../js/cost.js";
+import { buildHistory } from "../js/revisions.js";
+import { createCalendar, resolveHolidays } from "../js/calendar.js";
+import { billingMonths } from "../js/period.js";
+import { trueUp } from "../js/trueup.js";
 
 const csvPath = process.argv[2];
 if (!csvPath) {
@@ -157,7 +157,7 @@ const EXPORTER_BILL = {
 // So the rule is: split at the effective date, bucket each segment's kWh by TOU
 // period independently, and price each at its own revision's rates. Adders too —
 // PCIA is charged twice, 97 kWh at 0.03557 and 406 kWh at 0.03564. That is the
-// algorithm src/cost.js implements, and this checks it against printed figures
+// algorithm js/cost.js implements, and this checks it against printed figures
 // rather than against a synthetic fixture.
 // ---------------------------------------------------------------------------
 const REVISION_BILL = {

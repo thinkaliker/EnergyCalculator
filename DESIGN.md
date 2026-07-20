@@ -46,7 +46,7 @@ GitHub Pages serves no directory listings, so the app cannot discover what's in 
 
 Rates change three or four times a year, and a billing period can span a change — so "pick the file whose `effective_date` covers the usage period" is not a well-formed question. No single file covers a period that straddles a revision.
 
-**Past revisions live in `rates/history/`**, same schema, with their own generated manifest. `rates/sdge.json` keeps its path and keeps meaning *the current revision*, so "which rates do we rank at" stays trivially answerable. `src/revisions.js` builds a timeline from a current document plus its history and resolves **per day** — a tariff takes effect on a date boundary, so finer resolution would be precision the source documents do not have.
+**Past revisions live in `rates/history/`**, same schema, with their own generated manifest. `rates/sdge.json` keeps its path and keeps meaning *the current revision*, so "which rates do we rank at" stays trivially answerable. `js/revisions.js` builds a timeline from a current document plus its history and resolves **per day** — a tariff takes effect on a date boundary, so finer resolution would be precision the source documents do not have.
 
 `costPlan` takes that timeline as an optional `history`. Absent, every code path is exactly as it was; this is what keeps the reference bills bit-identical. Present, it splits delivery and generation prices per interval, the daily service charge and minimum bill per day, the volumetric adders per revision, and a tiered plan's segments at the boundary with the baseline allowance prorated by the days each side holds.
 
@@ -282,7 +282,7 @@ Two consequences worth stating:
 
 ### Batteries
 
-A battery is the same transformation with memory, so it does get its own module (`src/scenario.js`). Two things it does deliberately:
+A battery is the same transformation with memory, so it does get its own module (`js/scenario.js`). Two things it does deliberately:
 
 - **Peak windows come from the plan's own price curve**, not a hardcoded 4–9pm. EV-TOU-5's expensive hours are not TOU-DR1's, and a tariff revision moves them. Deriving them keeps that a data change, the same way `calendar.js` does for seasons and holidays. Tiered plans have no hourly curve and are refused rather than mis-scheduled.
 - **The dispatch is a greedy heuristic with no foresight.** It sees today's price and its current charge, nothing else. A real installer's scheduler forecasts and beats it, which means the savings shown are **conservative** — the model understates a battery rather than overstating it. That is the right direction to be wrong in for a purchase decision, and the UI says so rather than leaving it to be discovered.
@@ -370,7 +370,7 @@ Neither CCA publishes its own export curve. Both state they use SDG&E's values a
 
 What a net producer gets instead is Net Surplus Compensation, and the crucial point is that it is **not a function of that dollar balance**. SC 3(h) defines net surplus in kilowatt-hours — "all electricity generated ... measured in kilowatt-hours over a 12-month period that exceeds the amount of electricity consumed" — and closes the door explicitly: "If a customer has not generated excess kWhs, the customer is not eligible for NSC." A household can bank hundreds of dollars by exporting on-peak and importing super-off-peak, still consume more kWh than it generated, and be owed nothing. The calculator described exactly that case wrongly until this was read.
 
-So `src/trueup.js` computes the kWh test, which needs no rate data at all, and reports the dollar balance separately as forfeited. Two ledgers, never added together — which is also what the tariff requires of a CCA account: "The charges or credits resulting from a CCA's generation services shall not be co-mingled with charges or credits resulting from services provided by the Utility." The reference bill shows both, $237.46 on SDG&E's side against SDCP's $219.00.
+So `js/trueup.js` computes the kWh test, which needs no rate data at all, and reports the dollar balance separately as forfeited. Two ledgers, never added together — which is also what the tariff requires of a CCA account: "The charges or credits resulting from a CCA's generation services shall not be co-mingled with charges or credits resulting from services provided by the Utility." The reference bill shows both, $237.46 on SDG&E's side against SDCP's $219.00.
 
 **Not modelled: the NSC rate.** SC 3(i) sets it as surplus kWh × a DLAP price, plus a renewable adder for customers who have transferred their RECs to the utility. That price is a single scalar, not an hourly curve — "the simple rolling average of SDG&E's DLAP price from 7 a.m. to 5 p.m. corresponding to the customer's 12-month relevant period", recalculated monthly and published at sdge.com/nem. One number would be easy to carry; keeping it current would not, and a stale one would understate or overstate every exporter's payout silently. The surplus is reported in kWh and the rate is named.
 

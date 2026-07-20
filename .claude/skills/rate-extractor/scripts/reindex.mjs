@@ -88,7 +88,7 @@ try {
 const historyEntries = indexOf(historyDir, historyFiles);
 
 // Two revisions of one document claiming the same effective date makes
-// resolution depend on load order. src/revisions.js throws on it at runtime;
+// resolution depend on load order. js/revisions.js throws on it at runtime;
 // catching it here means it never reaches a deploy.
 const seen = new Map();
 for (const e of [...entries, ...historyEntries]) {

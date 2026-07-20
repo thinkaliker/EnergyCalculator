@@ -144,7 +144,7 @@ export function createExportPricer({ exportTable, vintage, adderPerKWh = 0, cale
  * for excess energy (kWh) will be retained by the Utility and the net producer
  * will not be owed any compensation for this excess energy." What a net
  * producer gets instead is Net Surplus Compensation, and SC 3(h) makes that a
- * *kWh* test rather than a dollar one, settled in src/trueup.js. The dollars
+ * *kWh* test rather than a dollar one, settled in js/trueup.js. The dollars
  * counted here are simply forfeited.
  *
  * Pass `periodBoundaries` — month keys that each *end* a Relevant Period — to

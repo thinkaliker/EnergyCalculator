@@ -7,10 +7,10 @@
 // pricing, DST days, and the parser's format quirks are all unverified by it.
 
 import { readFileSync } from "node:fs";
-import { parseSdgeCsv, parseIntervals, localDateKey } from "../src/parse.js";
-import { createCalendar, resolveHolidays, expectedIntervalsForDay } from "../src/calendar.js";
-import { costPlan, rankPlans } from "../src/cost.js";
-import { nemEligiblePlans } from "../src/nem.js";
+import { parseSdgeCsv, parseIntervals, localDateKey } from "../js/parse.js";
+import { createCalendar, resolveHolidays, expectedIntervalsForDay } from "../js/calendar.js";
+import { costPlan, rankPlans } from "../js/cost.js";
+import { nemEligiblePlans } from "../js/nem.js";
 
 const utility = JSON.parse(readFileSync("rates/sdge.json", "utf8"));
 let failed = 0;
@@ -137,7 +137,7 @@ const ceaCost = costPlan({ utility, planId: "tou-dr1", intervals: oneDay(0.25, 9
 check("cea: generation credit applied", ceaCost.lines.generationCredit, 24 * -0.03871, 1e-6);
 
 // --- period selection and trimming -----------------------------------------
-import { trimIncompleteDays, selectPeriod, describePeriod, hourlyShape, applyLoadProfile } from "../src/period.js";
+import { trimIncompleteDays, selectPeriod, describePeriod, hourlyShape, applyLoadProfile } from "../js/period.js";
 
 // Two full days plus a half day at the end, which is what a real export looks like.
 const twoAndAHalf = [
@@ -486,7 +486,7 @@ check("nem2: no exports gives the same total as no solar at all",
 // logic; what has to hold is that the transform splits a signed net into the
 // meter's two registers correctly.
 
-import { applyBattery, createPriceRanker, BATTERY_SIZES } from "../src/scenario.js";
+import { applyBattery, createPriceRanker, BATTERY_SIZES } from "../js/scenario.js";
 
 const solarProfile = JSON.parse(readFileSync("profiles/solar-rooftop.json", "utf8"));
 check("solar profile: 12 months x 24 hours",
@@ -654,9 +654,9 @@ check("battery: a tiered plan is refused rather than mis-scheduled", (() => {
 // Schedule NEM-ST SC 3: credit carries "until the end of the Relevant Period",
 // then the utility keeps it. Compensation is decided separately, and on kWh.
 
-import { billingMonths, relevantPeriods } from "../src/period.js";
-import { trueUp } from "../src/trueup.js";
-import { settleMonthlyCredits } from "../src/nem.js";
+import { billingMonths, relevantPeriods } from "../js/period.js";
+import { trueUp } from "../js/trueup.js";
+import { settleMonthlyCredits } from "../js/nem.js";
 
 // The reference bill's own cycle: reads on the 30th, 5/30 to 6/29, 31 days.
 const cycle = billingMonths(new Date(2026, 4, 30), new Date(2026, 6, 15), 30);
@@ -797,7 +797,7 @@ check("months: and identically to off-peak in January",
   rankAtHour(1, 11), rankAtHour(1, 8), 1e-12);
 
 // --- rate revisions ---------------------------------------------------------
-import { buildTimeline, buildHistory } from "../src/revisions.js";
+import { buildTimeline, buildHistory } from "../js/revisions.js";
 
 // Fixtures, not real rate files. Everything the resolver does is date
 // arithmetic, so a document that carries only a provider and an effective date
