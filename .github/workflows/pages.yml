@@ -31,6 +31,12 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Runners are UTC, and this calculator is entirely about local time — every
+    # tariff window, season boundary and DST transition is San Diego's. Under UTC
+    # the spring-forward day is an ordinary 24 hours and the DST checks fail on
+    # the runner while passing on any machine in the service territory.
+    env:
+      TZ: America/Los_Angeles
     steps:
       - uses: actions/checkout@v4
 

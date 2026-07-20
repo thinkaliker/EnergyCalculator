@@ -12,6 +12,21 @@ import { createCalendar, resolveHolidays, expectedIntervalsForDay } from "../js/
 import { costPlan, rankPlans } from "../js/cost.js";
 import { nemEligiblePlans } from "../js/nem.js";
 
+// The calculator works entirely in local time: a tariff's 4pm is 4pm at the
+// meter, and the checks below assert that March 8 2026 is a 23-hour day and
+// November 1 a 25-hour one. Run this where those are ordinary 24-hour days —
+// a UTC CI runner, most obviously — and three checks fail for a reason that has
+// nothing to do with the code under test. Say which it is rather than leaving
+// someone to work it out from "got 96, want 92".
+if (new Date(2026, 2, 8).getTimezoneOffset() === new Date(2026, 2, 9).getTimezoneOffset()) {
+  console.error(
+    `These checks assume US Pacific time; this shell is ` +
+    `${Intl.DateTimeFormat().resolvedOptions().timeZone}, which has no spring-forward on ` +
+    `2026-03-08.\n\n  TZ=America/Los_Angeles node tools/test.mjs\n`,
+  );
+  process.exit(1);
+}
+
 const utility = JSON.parse(readFileSync("rates/sdge.json", "utf8"));
 let failed = 0;
 
