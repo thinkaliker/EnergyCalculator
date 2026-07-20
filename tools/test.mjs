@@ -612,6 +612,37 @@ check("battery: grid arbitrage never exports",
 // never exceed what the reserve floor leaves reachable, nor the power limit.
 check("battery: respects the power limit per interval",
   arb.intervals.every((iv, i) => Math.abs(iv.kWh - week[i].kWh) <= BATTERY_SIZES.large.powerKW * 0.25 + 1e-9), true);
+// A grid battery must buy at the hours the tariff prices lowest, not at hours
+// that merely score low against a stretched range. TOU-ELEC is the case that
+// exposes the difference: its peak is far enough above everything else that its
+// shoulder hours sat under a 0.25 rank threshold despite costing 4c/kWh more
+// than the day's actual cheap window.
+const elecRank = createPriceRanker({ plan: utility.plans.find((p) => p.id === "tou-elec"), calendar: cal });
+const elecHours = Array.from({ length: 24 }, (_, h) => elecRank(new Date(2026, 0, 14, h)));
+const elecMin = Math.min(...elecHours.map((r) => r.price));
+check("battery: charge hours are the tariff's cheapest, not merely low-ranked",
+  elecHours.every((r) => !r.cheapest || r.price <= elecMin + 1e-9), true);
+check("battery: and a low rank alone does not qualify one",
+  elecHours.some((r) => r.rank <= 0.25 && !r.cheapest), true);
+
+// A flat plan has no cheap hour to buy at and no expensive one to sell into.
+// Charging it would spend the round-trip loss for nothing, so the dispatch must
+// decline entirely rather than fall through on a rank that is zero everywhere.
+const flatPlan = {
+  id: "flat-fixture", pricing_model: "tou",
+  delivery: { winter: { weekday: [{ start_hour: 0, end_hour: 24, price_per_kwh: 0.2 }] } },
+  generation: { winter: { weekday: [{ start_hour: 0, end_hour: 24, price_per_kwh: 0.1 }] } },
+};
+flatPlan.delivery.winter.weekend = flatPlan.delivery.winter.weekday;
+flatPlan.generation.winter.weekend = flatPlan.generation.winter.weekday;
+const flatRank = createPriceRanker({ plan: flatPlan, calendar: cal });
+const flatDay = Array.from({ length: 96 }, (_, i) => ({
+  start: new Date(2026, 0, 14, 0, i * 15),
+  durationSeconds: 900, kWh: 0.25, generationKWh: 0, netKWh: 0.25,
+}));
+const flatRun = applyBattery(flatDay, { ...BATTERY_SIZES.small, strategy: "grid", rankAt: flatRank });
+check("battery: a flat plan buys nothing", flatRun.chargedFromGridKWh, 0);
+
 check("battery: a tiered plan is refused rather than mis-scheduled", (() => {
   try {
     createPriceRanker({ plan: utility.plans.find((p) => p.id === "dr"), calendar: cal });

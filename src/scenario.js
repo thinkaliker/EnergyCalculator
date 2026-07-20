@@ -91,9 +91,18 @@ export function createPriceRanker({ plan, overlay, calendar }) {
     // so the dispatch does nothing rather than dividing by a zero spread and
     // producing arbitrage out of a rounding error.
     const spread = max - min;
+    const flat = spread <= 1e-9;
     const curve = hourly.map((p) => ({
       price: p,
-      rank: spread > 1e-9 ? (p - min) / spread : 0,
+      rank: flat ? 0 : (p - min) / spread,
+      // `rank` is a position within the day's price range, which is the wrong
+      // question to ask about charging. A plan with one very expensive peak
+      // stretches the range so far that a mid-priced shoulder hour still scores
+      // near zero — on TOU-ELEC that puts hours 6-9, 14-15 and 21-23 under a
+      // 0.25 rank threshold, so a grid battery buys at $0.3768 on a day whose
+      // cheap hour is $0.3376. `cheapest` names the hours the tariff actually
+      // prices lowest, independently of how far away the peak is.
+      cheapest: !flat && p <= min + 1e-9,
     }));
     cache.set(key, curve);
     return curve;
@@ -122,10 +131,13 @@ function priceAtHour(blocks, hour, month) {
  * `rankAt` comes from createPriceRanker and is plan-specific, so this runs once
  * per plan rather than once per series.
  *
- * Thresholds: discharge into the top 40% of the day's price range, charge from
- * the bottom 25%. They are deliberately not tuned to squeeze out a better
- * number — a tuned threshold would be fitted to whichever tariff happened to be
- * in front of it.
+ * Discharge into the top 40% of the day's price range. That threshold is
+ * deliberately not tuned to squeeze out a better number — a tuned threshold
+ * would be fitted to whichever tariff happened to be in front of it.
+ *
+ * Charging is not a threshold at all. It takes surplus solar whenever there is
+ * any, and otherwise only the hours the tariff prices lowest. See `cheapest` in
+ * createPriceRanker for why a rank threshold was the wrong instrument.
  */
 export function applyBattery(intervals, options) {
   const {
@@ -153,7 +165,6 @@ export function applyBattery(intervals, options) {
   const chargeEfficiency = roundTripEfficiency;
 
   const DISCHARGE_ABOVE = 0.6;
-  const CHARGE_BELOW = 0.25;
 
   let soc = floor;
   let chargedKWh = 0;
@@ -163,7 +174,7 @@ export function applyBattery(intervals, options) {
   const out = intervals.map((iv) => {
     const hours = iv.durationSeconds / 3600;
     const limit = powerKW * hours;
-    const { rank } = rankAt(iv.start);
+    const { rank, cheapest } = rankAt(iv.start);
 
     let imported = iv.kWh;
     let exported = iv.generationKWh ?? 0;
@@ -188,10 +199,17 @@ export function applyBattery(intervals, options) {
         exported -= taken;
         soc += taken * chargeEfficiency;
         chargedKWh += taken;
-      } else if (strategy === "grid" && rank <= CHARGE_BELOW) {
+      } else if (strategy === "grid" && cheapest) {
         // Buy cheap now to avoid buying expensive later. This is the only path
         // that adds import, and it is what makes a battery worth anything to a
         // household with no panels.
+        //
+        // Reached only when there is no surplus solar this interval — solar the
+        // house already generated is cheaper than any hour the tariff sells, so
+        // it takes the branch above. Absent that, "cheap" means the tariff's own
+        // lowest-priced hours and nothing looser: charging at a merely
+        // below-average hour spends a round trip's efficiency loss to move
+        // energy from one mid-priced hour to another.
         const room = capacityKWh - soc;
         const taken = Math.min(limit, room / chargeEfficiency);
         imported += taken;
