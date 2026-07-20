@@ -570,6 +570,19 @@ const sbCost = costPlan({ utility, planId: "ev-tou-5", intervals: solarPlusBatte
   climateZone: "coastal", nem: nbtOpts });
 check("battery: a battery on top of solar lowers the bill further", sbCost.total < weekSolarCost.total, true);
 
+// The very small size is a different kind of device, not a scaled-down one: its
+// inverter binds long before its cells do. Assert the ordering rather than a
+// figure — a 1.6 kWh unit must help, and must help less than a 13.5 kWh one, or
+// the size is not reaching the dispatch at all.
+const tinyOnSolar = applyBattery(weekWithSolar, { ...BATTERY_SIZES.tiny, strategy: "solar", rankAt });
+const tinyCost = costPlan({ utility, planId: "ev-tou-5", intervals: tinyOnSolar.intervals,
+  climateZone: "coastal", nem: nbtOpts });
+check("battery: a very small battery still lowers the bill", tinyCost.total < weekSolarCost.total, true);
+check("battery: but by less than a small one", tinyCost.total > sbCost.total, true);
+check("battery: never discharges more than its usable capacity in one interval",
+  tinyOnSolar.intervals.every((iv, i) =>
+    weekWithSolar[i].kWh - iv.kWh <= BATTERY_SIZES.tiny.powerKW * 0.25 + 1e-9), true);
+
 // Grid arbitrage on a flat-load house with no solar. The two numbers must move
 // in OPPOSITE directions: more kWh bought, fewer dollars spent. If total import
 // fell, the battery would be manufacturing energy; if cost rose, it would be

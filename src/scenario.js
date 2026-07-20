@@ -25,6 +25,11 @@
  * systems including inverter losses in both directions.
  */
 export const BATTERY_SIZES = {
+  // A plug-in portable unit rather than an installed system — the class of thing
+  // sold as a power station. Its inverter, not its cells, is the binding limit:
+  // 1.5 kW covers a fridge and a few outlets, so it shaves the top off an evening
+  // peak rather than carrying the house through one.
+  tiny: { capacityKWh: 1.6, powerKW: 1.5, label: "Very small — about 1.6 kWh" },
   small: { capacityKWh: 13.5, powerKW: 5, label: "Small — about 13.5 kWh" },
   large: { capacityKWh: 27, powerKW: 10, label: "Large — about 27 kWh" },
 };
