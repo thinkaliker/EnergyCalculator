@@ -1,0 +1,23 @@
+{
+  "generated": "2026-07-19",
+  "files": [
+    {
+      "provider": "sdge",
+      "type": "utility",
+      "effective_date": "2026-04-01",
+      "path": "sdge-2026-04-01.json"
+    },
+    {
+      "provider": "sdge",
+      "type": "utility",
+      "effective_date": "2026-03-01",
+      "path": "sdge-2026-03-01.json"
+    },
+    {
+      "provider": "sdge",
+      "type": "utility",
+      "effective_date": "2026-01-01",
+      "path": "sdge-2026-01-01.json"
+    }
+  ]
+}

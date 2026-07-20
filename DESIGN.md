@@ -44,7 +44,15 @@ GitHub Pages serves no directory listings, so the app cannot discover what's in 
 }
 ```
 
-Rates change several times a year. The app picks the file whose `effective_date` covers the usage period, and warns visibly when the newest available rates predate the usage data.
+Rates change three or four times a year, and a billing period can span a change — so "pick the file whose `effective_date` covers the usage period" is not a well-formed question. No single file covers a period that straddles a revision.
+
+**Past revisions live in `rates/history/`**, same schema, with their own generated manifest. `rates/sdge.json` keeps its path and keeps meaning *the current revision*, so "which rates do we rank at" stays trivially answerable. `src/revisions.js` builds a timeline from a current document plus its history and resolves **per day** — a tariff takes effect on a date boundary, so finer resolution would be precision the source documents do not have.
+
+`costPlan` takes that timeline as an optional `history`. Absent, every code path is exactly as it was; this is what keeps the reference bills bit-identical. Present, it splits delivery and generation prices per interval, the daily service charge and minimum bill per day, the volumetric adders per revision, and a tiered plan's segments at the boundary with the baseline allowance prorated by the days each side holds.
+
+Two things deliberately do **not** vary by revision. The **calendar** — season boundaries have not moved, and a boundary shifting mid-series would scramble the season buckets for a benefit no bill has shown. And the **plan ranking**, which stays at current rates throughout: costing a year of data at the rates that applied answers "which plan would have been cheapest last year", which is not the question this page exists to answer.
+
+An archive is necessarily permanent and necessarily committed — a static page has no backend and cannot read git history. It is also necessarily incomplete, since each revision is a hand-extracted file. A day earlier than the oldest archived revision is priced at that revision and says so in the warnings the UI already renders; a schedule missing from an archived file falls back the same way. Silent substitution is the failure mode the whole policy exists to prevent.
 
 ### `rates/sdge.json` — base utility file
 

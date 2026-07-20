@@ -13,10 +13,33 @@
 import { localDateKey } from "./parse.js";
 import { createCalendar } from "./calendar.js";
 import { createExportPricer, nemEligiblePlans, settleMonthlyCredits } from "./nem.js";
+import { revisionProvenance } from "./revisions.js";
 
-const priceAtHour = (blocks, hour) => {
-  const b = blocks.find((x) => hour >= x.start_hour && hour < x.end_hour);
-  if (!b) throw new Error(`No price covers hour ${hour} — rate file has an hour gap.`);
+/**
+ * The price for a clock hour, on a given calendar month.
+ *
+ * The month matters because a TOU window can be scoped to part of a season.
+ * EV-TOU-5 and TOU-DR1 both price 10am–2pm as super-off-peak **in March and
+ * April only**, and as off-peak for the rest of winter — the bill's own TOU
+ * chart says so outright: "Off-Peak: 6:00 a.m. – 4:00 p.m. Excluding 10:00 a.m.
+ * – 2:00 p.m. in March and April". Treating that window as super-off-peak all
+ * winter, which this file did until now, misprices every November-to-February
+ * midday hour by roughly 0.29 $/kWh.
+ *
+ * A block with no `months` applies to its whole season, which is the common
+ * case and every block written before this rule existed. Month-scoped blocks
+ * are searched first so the narrower rule wins over the broader one it carves
+ * out of — that is what lets the two overlap in the file and stay readable,
+ * rather than forcing the season to be split into four disjoint ranges.
+ *
+ * @param {number} month 1-12
+ */
+const priceAtHour = (blocks, hour, month) => {
+  const covers = (x) => hour >= x.start_hour && hour < x.end_hour;
+  const b =
+    blocks.find((x) => x.months?.includes(month) && covers(x)) ??
+    blocks.find((x) => !x.months && covers(x));
+  if (!b) throw new Error(`No price covers hour ${hour} in month ${month} — rate file has an hour gap.`);
   return b.price_per_kwh;
 };
 
@@ -34,6 +57,8 @@ const priceAtHour = (blocks, hour) => {
  *                  omit for calendar months
  * @param {string[]} [o.trueUpBoundaries] billing-month keys that end a Relevant
  *                  Period, at which carried credit is forfeited
+ * @param {object}  [o.history] timeline from revisions.js buildHistory; omit to
+ *                  price the whole series at `utility` and `overlay` as given
  */
 export function costPlan({
   utility,
@@ -47,6 +72,7 @@ export function costPlan({
   nem = null,
   billingCycleDay = null,
   trueUpBoundaries = [],
+  history = null,
 }) {
   const plan = utility.plans.find((p) => p.id === planId);
   if (!plan) throw new Error(`No plan "${planId}" in the rate file.`);
@@ -83,6 +109,73 @@ export function costPlan({
     );
   }
 
+  // --- which revision priced a given day ----------------------------------
+  //
+  // Rates change three or four times a year and a billing period can span a
+  // change, so the prices in force are a function of the day, not of the run.
+  // Everything below reads its rates through `revAt` rather than closing over
+  // `plan` and `overlay` directly.
+  //
+  // With no history this returns one frozen object, by identity, every time.
+  // That is deliberate: "no archive" must not be a different code path from
+  // "an archive", or the reference bills that already reconcile would drift.
+  const currentRev = {
+    id: utility.effective_date,
+    utility,
+    plan,
+    overlay,
+    overlayPlan: isCCA ? overlay.plans[planId] : null,
+    nbcRate,
+  };
+  const revById = new Map([[currentRev.id, currentRev]]);
+
+  // Which utility revisions actually priced something. Not the same as which
+  // ones exist: a period may sit entirely inside one, and the UI should say so
+  // rather than listing an archive the answer does not depend on.
+  const usedRevisionIds = new Set(history ? [] : [currentRev.id]);
+
+  const revAt = history
+    ? (date) => {
+        const u = history.utilityAt(date);
+        const o = history.overlayAt ? history.overlayAt(date) : null;
+        const id = `${u.id}${o ? `|${o.id}` : ""}`;
+        usedRevisionIds.add(u.id);
+        if (revById.has(id)) return revById.get(id);
+
+        // A backfilled revision may predate a schedule, or simply not have been
+        // extracted yet. Falling back to the current plan keeps a partly-filled
+        // archive usable — the same policy revisions.js applies to whole files,
+        // applied one level down.
+        const histPlan = u.doc.plans?.find((p) => p.id === planId);
+        if (!histPlan) {
+          warnings.push(
+            `The ${u.id} rates have no plan "${planId}", so those days are priced at the ` +
+              `${currentRev.id} revision.`,
+          );
+        }
+        const histOverlayPlan = isCCA ? o?.doc.plans?.[planId] : null;
+        if (isCCA && o && !histOverlayPlan) {
+          warnings.push(
+            `${o.doc.product ?? o.doc.provider} did not publish plan "${planId}" in its ${o.id} ` +
+              `rates, so those days use the current generation prices.`,
+          );
+        }
+
+        const resolved = {
+          id,
+          utility: u.doc,
+          plan: histPlan ?? plan,
+          overlay: o?.doc ?? overlay,
+          overlayPlan: isCCA ? (histOverlayPlan ?? overlay.plans[planId]) : null,
+          nbcRate: (histPlan ?? plan).nonbypassable_charges?.total_per_kwh ?? nbcRate,
+        };
+        revById.set(id, resolved);
+        return resolved;
+      }
+    : () => currentRev;
+
+  if (history) warnings.push(...history.warnings);
+
   let exportPricer = null;
   if (nemMode === "nem3") {
     exportPricer = createExportPricer({
@@ -104,6 +197,18 @@ export function costPlan({
     return bySeason.get(season);
   };
 
+  // Tiered plans need the same split again by revision, because a tier price
+  // moves with the revision and the allowance those tiers are measured against
+  // is per-day. Filled unconditionally; read only on the tiered path.
+  const bySeasonRev = new Map();
+  const seasonRevBucket = (season, revId) => {
+    const key = `${season}|${revId}`;
+    if (!bySeasonRev.has(key)) {
+      bySeasonRev.set(key, { season, revId, kWh: 0, days: new Set() });
+    }
+    return bySeasonRev.get(key);
+  };
+
   // Per-month energy dollars, so credits can be seen to carry rather than being
   // paid out at the end of each month, plus raw net kWh — which is a separate
   // quantity from the dollars and not derivable from them. Schedule NEM-ST
@@ -122,6 +227,21 @@ export function costPlan({
   let nbcBaseKWh = 0;
   let exportCredit = 0;
 
+  // Volumetric charges that are not delivery or generation — PCIA, the state
+  // regulatory fee, the CARE surcharge, the non-bypassable total — are a rate
+  // times a kWh base, and the rate moves with the revision. So the base has to
+  // be split the same way rather than accumulated as one number.
+  //
+  // Which day each kWh landed in is also which revision priced it, so these two
+  // maps are filled in the same pass that prices energy.
+  const kWhByRev = new Map();
+  const nbcByRev = new Map();
+  const addTo = (map, id, kWh) => map.set(id, (map.get(id) ?? 0) + kWh);
+  // Days are the base for the fixed charge, which is per-day and also moves
+  // with the revision — 4 days at one Base Services Charge and 25 at another.
+  const daysByRev = new Map();
+  const dayRev = new Map();
+
   // NEM 2.0 nets per TOU period per billing month, not per interval and not
   // across the whole period — Schedule NEM-ST SC 3(b). The distinction is worth
   // real money: a month that exports heavily at super-off-peak and imports at
@@ -132,11 +252,19 @@ export function costPlan({
   // what actually distinguishes on/off/super-off-peak — the rate file names its
   // hour blocks nowhere, and delivery is a single flat block on some schedules
   // even where the bill still splits it three ways.
+  //
+  // The revision is part of the key as well. A rate change starts a new charge
+  // block on the bill, so the periods either side of it are separate periods.
+  // The generation price alone very nearly does this by accident, since a
+  // revision moves it — but `deliveryPrice` is stored on the bucket rather than
+  // keyed, so two revisions that happened to share a generation price would
+  // collide and the last interval seen would silently set the delivery rate for
+  // all of them.
   const touBuckets = new Map();
-  const touBucket = (month, season, genPrice) => {
-    const key = `${month}|${season}|${genPrice}`;
+  const touBucket = (month, season, genPrice, revId) => {
+    const key = `${month}|${season}|${genPrice}|${revId}`;
     if (!touBuckets.has(key)) {
-      touBuckets.set(key, { month, season, net: 0, deliveryPrice: 0, genPrice, utilGenPrice: 0 });
+      touBuckets.set(key, { month, season, revId, net: 0, deliveryPrice: 0, genPrice, utilGenPrice: 0 });
     }
     return touBuckets.get(key);
   };
@@ -146,9 +274,12 @@ export function costPlan({
     const season = calendar.seasonOf(iv.start);
     const dayType = calendar.dayTypeOf(iv.start);
     const hour = iv.start.getHours();
+    const month = iv.start.getMonth() + 1;
     const b = bucket(season);
     const m = monthBucket(iv.start);
     const dayKey = localDateKey(iv.start);
+    const rev = revAt(iv.start);
+    dayRev.set(dayKey, rev);
 
     const imported = iv.kWh;
     const exported = nemMode === "none" ? 0 : (iv.generationKWh ?? 0);
@@ -158,10 +289,18 @@ export function costPlan({
 
     grossImportKWh += imported;
     exportedKWh += exported;
-    if (nemMode === "nem2") nbcBaseKWh += Math.max(0, imported - exported);
+    addTo(kWhByRev, rev.id, imported);
+    if (nemMode === "nem2") {
+      const net = Math.max(0, imported - exported);
+      nbcBaseKWh += net;
+      addTo(nbcByRev, rev.id, net);
+    }
 
     b.kWh += billed;
     b.days.add(dayKey);
+    const sr = seasonRevBucket(season, rev.id);
+    sr.kWh += billed;
+    sr.days.add(dayKey);
     m.days.add(dayKey);
     m.netKWh += imported - exported;
     allDays.add(dayKey);
@@ -171,16 +310,16 @@ export function costPlan({
       // being netted against and billed separately below, so exports cannot
       // cancel it. Everything else nets at retail.
       const deliveryPrice =
-        priceAtHour(plan.delivery[season][dayType], hour) - (nemMode === "nem2" ? nbcRate : 0);
-      const genTree = isCCA ? overlay.plans[planId] : plan.generation;
-      const generationPrice = priceAtHour(genTree[season][dayType], hour);
+        priceAtHour(rev.plan.delivery[season][dayType], hour, month) - (nemMode === "nem2" ? rev.nbcRate : 0);
+      const genTree = isCCA ? rev.overlayPlan : rev.plan.generation;
+      const generationPrice = priceAtHour(genTree[season][dayType], hour, month);
 
       if (nemMode === "nem2") {
         // Accumulate now, price once the month's TOU periods are known.
-        const t = touBucket(billingMonthKey(iv.start, billingCycleDay), season, generationPrice);
+        const t = touBucket(billingMonthKey(iv.start, billingCycleDay), season, generationPrice, rev.id);
         t.net += billed;
         t.deliveryPrice = deliveryPrice;
-        t.utilGenPrice = priceAtHour(plan.generation[season][dayType], hour);
+        t.utilGenPrice = priceAtHour(rev.plan.generation[season][dayType], hour, month);
       } else {
         const deliveryCost = billed * deliveryPrice;
         const generationCost = billed * generationPrice;
@@ -206,12 +345,14 @@ export function costPlan({
   // accrues to the NEM credit bank and comes back as an applied credit — but it
   // does not reduce delivery within the month.
   let positiveNetKWh = 0;
+  const positiveNetByRev = new Map();
   if (nemMode === "nem2") {
     for (const t of touBuckets.values()) {
       const b = bucket(t.season);
       const m = byMonth.get(t.month);
       const billableNet = Math.max(0, t.net);
       positiveNetKWh += billableNet;
+      addTo(positiveNetByRev, t.revId, billableNet);
 
       const deliveryCost = billableNet * t.deliveryPrice;
       const generationCost = t.net * t.genPrice;
@@ -243,6 +384,20 @@ export function costPlan({
   //
   // On the validated bill these were 497 kWh and 156 kWh for the same month.
   const adderBaseKWh = nemMode === "nem2" ? positiveNetKWh : grossImportKWh;
+  const adderBaseByRev = nemMode === "nem2" ? positiveNetByRev : kWhByRev;
+
+  /**
+   * A volumetric charge, priced at each revision's own rate.
+   *
+   * `pick` is given the revision's utility document and returns the rate, so a
+   * caller reads as the tariff line it is charging. With no history there is one
+   * entry and this reduces to the multiplication it replaced.
+   */
+  const perRev = (base, pick) => {
+    let total = 0;
+    for (const [id, kWh] of base) total += kWh * (pick(revById.get(id)) ?? 0);
+    return total;
+  };
 
   // --- baseline allowance -------------------------------------------------
   // Allowance is per-day and season-specific, so it accrues day by day rather
@@ -266,14 +421,31 @@ export function costPlan({
           "days and usage, which is an approximation of a single period-wide tier boundary.",
       );
     }
-    for (const [season, b] of bySeason) {
-      const allowance = allowanceFor(season, b.days.size);
+    if (history && bySeasonRev.size > bySeason.size) {
+      notes.push(
+        "A rate revision falls inside this period. Tiers are applied to each side of it " +
+          "separately, with the baseline allowance prorated by the days on each side — which " +
+          "is how the bill splits it.",
+      );
+    }
+    for (const b of bySeason.values()) {
+      b.delivery = 0;
+      b.generation = 0;
+    }
+    for (const sr of bySeasonRev.values()) {
+      const b = bucket(sr.season);
+      const rev = revById.get(sr.revId);
+      // Prorated: the allowance accrues per day, so a segment earns the days it
+      // actually contains and no more. Splitting a period at a revision without
+      // splitting the allowance with it would hand each segment a full period's
+      // worth and price nearly everything at tier 1.
+      const allowance = allowanceFor(sr.season, sr.days.size);
       // A season that nets negative has no tiers to climb. Tiered plans are not
       // NEM-eligible anyway, so this only guards against being called directly.
-      const tiered = Math.max(0, b.kWh);
-      b.delivery = applyTiers(plan.delivery[season], tiered, allowance);
-      const genTiers = isCCA ? overlay.plans[planId][season] : plan.generation[season];
-      b.generation = applyTiers(genTiers, tiered, allowance);
+      const tiered = Math.max(0, sr.kWh);
+      b.delivery += applyTiers(rev.plan.delivery[sr.season], tiered, allowance);
+      const genTiers = isCCA ? rev.overlayPlan[sr.season] : rev.plan.generation[sr.season];
+      b.generation += applyTiers(genTiers, tiered, allowance);
     }
     // byMonth is left empty here on purpose: it only feeds the credit
     // carryforward, and tiered plans are not eligible for either NEM tariff.
@@ -285,7 +457,9 @@ export function costPlan({
   // --- CCA generation credit ---------------------------------------------
   let generationCredit = 0;
   if (isCCA && typeof overlay.generation_credit_per_kwh === "number") {
-    generationCredit = adderBaseKWh * overlay.generation_credit_per_kwh;
+    // A temporary credit that lapses: it is in one revision's overlay and not
+    // the next, which is exactly why it is stored separately from the prices.
+    generationCredit = perRev(adderBaseByRev, (r) => r.overlay?.generation_credit_per_kwh);
     generation += generationCredit;
   }
 
@@ -293,13 +467,26 @@ export function costPlan({
   // Stripped out of the netted delivery price above and billed here on import
   // instead, so a household that exports as much as it imports still pays them.
   // This is the single largest reason a net-zero solar bill is not a zero bill.
-  const nonbypassable = nemMode === "nem2" ? nbcBaseKWh * nbcRate : 0;
+  const nonbypassable =
+    nemMode === "nem2" ? perRev(nbcByRev, (r) => r.nbcRate) : 0;
 
   // --- fixed charges ------------------------------------------------------
   // A plan may override the file-level block; EV-TOU has no service charge but
   // does have a minimum bill.
-  const fixedSpec = plan.fixed_charges ?? utility.fixed_charges;
-  const fixed = (fixedSpec.daily_service_charge ?? 0) * days;
+  //
+  // Charged per day at that day's own rate, which is what the bill prints when a
+  // revision lands mid-period: 4 days at one Base Services Charge and 25 at the
+  // next. `dayRev` was filled during the interval pass, so this is a lookup.
+  const fixedSpecFor = (r) => r.plan.fixed_charges ?? r.utility.fixed_charges;
+  let fixed = 0;
+  let minimumBill = 0;
+  for (const dayKey of allDays) {
+    const spec = fixedSpecFor(dayRev.get(dayKey) ?? currentRev);
+    fixed += spec.daily_service_charge ?? 0;
+    // EV-TOU has no service charge but does have a minimum bill, and it is the
+    // same kind of quantity — a daily rate that a revision can move.
+    minimumBill += spec.minimum_bill_daily ?? 0;
+  }
 
   // --- baseline adjustment credit ----------------------------------------
   // Applies to listed plans only, and only up to a percentage of baseline.
@@ -318,7 +505,14 @@ export function costPlan({
     // candidate base reproduces it, so this line is expected to run ~8% high for
     // solar customers. See README "Needs verifying".
     const creditBase = nemMode === "nem2" ? positiveNetKWh : Math.max(totalKWh, 0);
-    baselineCredit = Math.min(creditBase, cap) * b.credit_per_kwh;
+    const credited = Math.min(creditBase, cap);
+    // `creditBase` is the same quantity `adderBaseByRev` splits — net-of-export
+    // in TOU periods under NEM 2.0, gross import otherwise — so the cap can be
+    // applied period-wide and then shared out in proportion. The share is 1 in
+    // the common case where the cap does not bind, and every revision is
+    // credited at its own rate either way.
+    const share = creditBase > 0 ? credited / creditBase : 0;
+    baselineCredit = share * perRev(adderBaseByRev, (r) => r.utility.baseline?.credit_per_kwh);
   }
 
   // --- CCA adders ---------------------------------------------------------
@@ -331,13 +525,15 @@ export function costPlan({
     if (rate == null) {
       throw new Error(`No PCIA rate for vintage ${vintage}.`);
     }
-    pcia = adderBaseKWh * rate;
+    // The vintage is a property of the customer and does not move; the rate
+    // charged for it does, so it is looked up per revision.
+    pcia = perRev(adderBaseByRev, (r) => r.utility.cca_adders?.pcia_by_vintage?.[String(vintage)] ?? rate);
     notes.push(`PCIA charged at the ${vintage} vintage ($${rate}/kWh).`);
   }
 
   // --- taxes and fees -----------------------------------------------------
   const tf = utility.taxes_and_fees ?? {};
-  const stateRegulatoryFee = adderBaseKWh * (tf.state_regulatory_fee_per_kwh ?? 0);
+  const stateRegulatoryFee = perRev(adderBaseByRev, (r) => r.utility.taxes_and_fees?.state_regulatory_fee_per_kwh);
 
   const subtotal =
     delivery + fixed + generation + baselineCredit + pcia + stateRegulatoryFee +
@@ -388,7 +584,7 @@ export function costPlan({
     const imputed = nemMode === "nem2"
       ? imputedNem2
       : imputedUtilityGeneration({ utility, plan, model, bySeason, calendar, intervals, nemMode });
-    const careSurcharge = adderBaseKWh * (tf.care_surcharge_per_kwh ?? 0);
+    const careSurcharge = perRev(adderBaseByRev, (r) => r.utility.taxes_and_fees?.care_surcharge_per_kwh);
     franchiseFeeEquivalent = (imputed + careSurcharge) * (franchiseFeeTotalPct / 100);
     warnings.push(
       "Franchise fee equivalent surcharge is charged on a base inferred from a bill, not published in any tariff.",
@@ -457,7 +653,6 @@ export function costPlan({
   // totals, which the season-bucketed accumulation above does not carry. It
   // only ever bites on EV-TOU, which is separately metered and already unsafe
   // to rank against a whole-home export.
-  const minimumBill = (fixedSpec.minimum_bill_daily ?? 0) * days;
   const totalAfterMinimum = Math.max(total, minimumBill);
   if (totalAfterMinimum > total) {
     notes.push(`Minimum bill of $${minimumBill.toFixed(2)} applied.`);
@@ -502,6 +697,9 @@ export function costPlan({
     ),
     notes,
     warnings,
+    // Which archived rate revisions this figure rests on, and whether a person
+    // has checked them. Empty when no archive was consulted.
+    provenance: revisionProvenance(history, usedRevisionIds),
   };
 }
 
@@ -553,7 +751,7 @@ function imputedUtilityGeneration({ utility, plan, model, bySeason, calendar, in
     // gross usage for a solar customer would charge the CCA franchise fee on
     // energy the customer never bought.
     const billed = nemMode === "nem2" ? iv.kWh - (iv.generationKWh ?? 0) : iv.kWh;
-    total += billed * priceAtHour(plan.generation[season][dayType], iv.start.getHours());
+    total += billed * priceAtHour(plan.generation[season][dayType], iv.start.getHours(), iv.start.getMonth() + 1);
   }
   return total;
 }

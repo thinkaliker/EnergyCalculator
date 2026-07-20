@@ -1,8 +1,9 @@
 // Page wiring. All arithmetic lives in src/ so it can be tested in Node;
 // this file only moves data between the DOM, the engine, and Chart.js.
 
-import { parseIntervals } from "./src/parse.js";
+import { parseIntervals, localDateKey } from "./src/parse.js";
 import { costPlan } from "./src/cost.js";
+import { buildHistory } from "./src/revisions.js";
 import { nemEligiblePlans } from "./src/nem.js";
 import { applyBattery, createPriceRanker, BATTERY_SIZES } from "./src/scenario.js";
 import { createCalendar } from "./src/calendar.js";
@@ -24,6 +25,9 @@ const state = {
   profiles: [],
   raw: [],           // every interval in the file
   selectedPlanId: null,
+  historyIndex: [],  // past rate revisions available, as { provider, effective_date, path }
+  history: new Map(),// path -> fetched revision document
+  timeline: null,    // resolver over the revisions this file's dates need
 };
 
 async function init() {
@@ -37,6 +41,18 @@ async function init() {
     .filter((o) => o.doc.type === "generation");
   state.exportTable = docs.find((d) => d.type === "export_prices") ?? null;
   state.cities = docs.find((d) => d.type === "cities") ?? null;
+
+  // The archive manifest only — a list, not rate data. The revisions themselves
+  // are fetched once a usage file says which of them the period actually needs,
+  // so a household whose data sits inside the current revision downloads nothing
+  // extra and the first paint is unchanged.
+  try {
+    state.historyIndex = (await getJSON("rates/history/index.json")).files ?? [];
+  } catch {
+    // No archive published. Every day then prices at the current revision, which
+    // is what the calculator did before the archive existed.
+    state.historyIndex = [];
+  }
 
   buildZoneSelect();
   buildCitySelect();
@@ -322,12 +338,14 @@ function setupDropzone() {
 
 function readFile(file) {
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     try {
       const { intervals, warnings, meta } = parseIntervals(reader.result);
       state.raw = intervals;
       state.selectedPlanId = null;
       showImport(meta, warnings);
+      // Before costing, since which revisions apply changes every figure below.
+      await loadHistoryFor(intervals);
       recompute();
     } catch (e) {
       $("import-stats").innerHTML = "";
@@ -336,6 +354,50 @@ function readFile(file) {
     }
   };
   reader.readAsText(file);
+}
+
+/**
+ * Fetch the archived rate revisions this file's dates actually need.
+ *
+ * "Need" means: effective before the current revision, and not older than the
+ * revision that already covers the file's first day. A file entirely inside the
+ * current rates fetches nothing.
+ *
+ * Rates only ever move backwards from here — the archive can never reprice a day
+ * the current file already covers, because buildTimeline resolves each day to the
+ * newest revision at or before it and the current one is always newest.
+ */
+async function loadHistoryFor(intervals) {
+  state.timeline = null;
+  if (!intervals.length || !state.historyIndex.length) return;
+
+  const from = localDateKey(intervals[0].start);
+  const to = localDateKey(intervals.at(-1).start);
+
+  const forUtility = state.historyIndex
+    .filter((f) => f.type === "utility" && f.effective_date < state.utility.effective_date)
+    .sort((a, b) => b.effective_date.localeCompare(a.effective_date));
+  // Everything effective after the file starts, plus the one that was already in
+  // force when it starts — without that last one the earliest days would fall
+  // back and warn for no reason.
+  const covering = forUtility.filter((f) => f.effective_date > from);
+  const straddling = forUtility.find((f) => f.effective_date <= from);
+  const needed = straddling ? [...covering, straddling] : covering;
+  if (!needed.length) return;
+
+  const docs = await Promise.all(needed.map(async (f) => {
+    if (!state.history.has(f.path)) {
+      state.history.set(f.path, await getJSON(`rates/history/${f.path}`));
+    }
+    return state.history.get(f.path);
+  }));
+
+  state.timeline = buildHistory({
+    utility: state.utility,
+    utilityHistory: docs,
+    from: intervals[0].start,
+    to: intervals.at(-1).start,
+  });
 }
 
 function showImport(meta, warnings) {
@@ -369,6 +431,9 @@ function costOptions(intervals, overlayDoc) {
     pciaVintage: Number($("vintage").value),
     inCityOfSanDiego: currentCity()?.name === "San Diego",
     nem: nemOptions(),
+    // Past days price at the rates that were in force on them; days the current
+    // revision covers price at it. The archive can only ever reach backwards.
+    history: state.timeline,
     ...trueUpOptions(intervals),
   };
 }
@@ -458,6 +523,7 @@ function recompute() {
   }
 
   renderCoverage(intervals);
+  renderRateRevisions(results.find((r) => r.planId === state.selectedPlanId) ?? results[0]);
   renderTrueUp(intervals, results.find((r) => r.planId === state.selectedPlanId) ?? results[0]);
   renderHeadline(results, intervals);
   renderTable(results);
@@ -752,6 +818,49 @@ function renderCaveats() {
   $("caveats").innerHTML = items
     .map(([t, d]) => `<div class="caveat"><b>${t}</b><p>${d}</p></div>`)
     .join("");
+}
+
+/**
+ * Which rate revisions produced the figures on screen.
+ *
+ * Shown whenever more than one applied, because that is the case where a single
+ * "rates effective X" line at the bottom of the page would be a lie — the period
+ * was priced at two or three different sets of rates, and the reader is entitled
+ * to know which.
+ *
+ * A revision not yet checked by a person is called out separately. Its numbers
+ * are used in full, so the point is not to discount the figure but to say how
+ * far it has been verified.
+ */
+function renderRateRevisions(result) {
+  const el = $("rate-revisions");
+  if (!el) return;
+  const used = result?.provenance?.revisions ?? [];
+  if (used.length < 2) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
+  }
+
+  const dates = [...used].sort((a, b) => a.effective_date.localeCompare(b.effective_date));
+  const unreviewed = result.provenance.unreviewed;
+  el.classList.remove("hidden");
+  el.innerHTML =
+    `<h3>Priced at ${dates.length} rate revisions</h3>` +
+    `<p>Your data spans a rate change, so each day is charged at the rates that were in force ` +
+    `on it — the same way the bill does it.</p>` +
+    `<ul class="revision-list">${dates.map((r) => {
+      const flagged = unreviewed.includes(r.effective_date);
+      return `<li>Effective ${esc(r.effective_date)}` +
+        (flagged ? ` <span class="tag unverified">not human-verified</span>` : "") +
+        `</li>`;
+    }).join("")}</ul>` +
+    (unreviewed.length
+      ? `<p class="unverified-note">Revisions marked <strong>not human-verified</strong> were ` +
+        `extracted automatically and cross-checked against a real bill, but nobody has read them ` +
+        `against the tariff yet. Their numbers are used in full — this is a statement about how ` +
+        `far they have been checked, not a discount applied to them.</p>`
+      : "");
 }
 
 function renderProvenance(index) {

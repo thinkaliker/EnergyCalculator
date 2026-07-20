@@ -79,12 +79,86 @@ Computed from `rates/sdge.json` plan `ev-tou-5` plus the interval data, against 
    and `0.31711` after. `sdge.json` holds only the Jun 1 2026 revision, so the first 4 days
    are priced with the wrong (newer) rate.
 
-### Structural consequence
+### Resolved 2026-07-19 — the archive
 
-A billing period can span a rate revision. The design's "pick the file whose `effective_date`
-covers the usage period" is not sufficient — the calculator must be able to apply **two or more
-revisions within one period**, splitting at the effective date. Until then, any period
-containing a rate change carries a small error.
+Both revisions are now held in `rates/history/`, and this period is costed on both sides of the
+change. The figures above are the pre-archive ones; with it, delivery reads `59.80` and the
+total `101.51`. **The correct model fits slightly worse than the incorrect one**, which is worth
+explaining rather than reverting.
+
+The bill prints both segments, so the split is checkable directly:
+
+| segment | days | kWh (bill) | delivery (bill) |
+| --- | --- | --- | --- |
+| pre-Jun 1 | 4 | 62.35 (62) | 8.13 (7.98) |
+| Jun 1 on | 25 | 387.93 (388) | 51.67 (51.57) |
+
+The day and kWh splits land exactly. What remains is the bill rounding each TOU bucket's kWh to
+a whole number before pricing — six buckets, each losing a fraction. Costing the whole period at
+current rates fits the *total* better only by accident: underpricing those 4 days at the cheaper
+June rate happens to cancel the rounding excess. Two errors in opposite directions is not
+agreement.
+
+Note this period also spans the winter/summer boundary on the same day, so generation switches
+from winter to summer rates at the same moment as the price revision.
+
+## 2026-07-19 — a period that spans a rate change, itemised
+
+Source: a 3/27/26–4/27/26 bill on EV-TOU-5, 32 days, 503 kWh, no solar. It spans the 4/1 change
+and prints **both segments in full** — kWh per TOU period, dollars, and PCIA charged twice.
+
+> "There was a rate change on day 6 of your Billing Period. Therefore, your charges for the
+> first 5 days were at Rate 1, and the remaining 27 days were at Rate 2."
+
+| line | archive off | archive on | bill |
+| --- | --- | --- | --- |
+| Electricity Delivery (UDC) | 66.08 | **67.28** | 67.42 |
+| PCIA (2021) | 17.91 | **17.90** | 17.92 |
+
+Delivery error falls from `−1.34` to `−0.14`. This bill establishes the billing rule: **split at
+the effective date, bucket each segment's kWh by TOU period independently, price each at its own
+revision's rates, and charge the volumetric adders per segment too.**
+
+It also cross-validates the archive itself. Every Rate 1 figure it prints — delivery `0.32322`,
+super off-peak `0.03676`, winter generation `0.20013` / `0.14354` / `0.07419`, PCIA `0.03557` —
+matches the 1/1/2026 Total Rates Table exactly.
+
+## 2026-07-19 — the midday super-off-peak window is a revision, not a season
+
+A 2/26/26–3/26/26 bill reports something different from a rate change:
+
+> "There was a **time of use change** on day 4 of your Billing Period. Therefore, your
+> consumption for the first 3 days were aggregated on TOU 1, and the remaining 26 days were
+> aggregated on TOU 2."
+
+One set of prices for the whole period, but the hour-to-period mapping moved on **3/1/2026**.
+The TOU chart printed on each bill settles what moved:
+
+| bill | winter weekday super-off-peak |
+| --- | --- |
+| March (2/26–3/26) | Midnight–6am; **10am–2pm in March and April** |
+| April (3/27–4/27) | Midnight–6am; 10am–2pm |
+| July (5/28–6/25) | Midnight–6am; 10am–2pm |
+
+So the "March and April" restriction was itself temporary and had gone by April. Read together
+with the TOU-DR1 bill — whose March, April and May periods all reconcile with the window
+present, and whose earlier periods do not — the sequence is:
+
+- **before 2026-03-01**: winter 10am–2pm is ordinary off-peak
+- **2026-03-01 on**: winter 10am–2pm is super-off-peak
+
+That is a tariff revision, so it lives in `rates/history/sdge-2026-03-01.json` — a revision whose
+*prices are identical* to the one before it and whose *windows differ*. It is why no Total Rates
+Table exists for 3/1/2026: no price changed.
+
+**Effect.** Costing Jan 5 – Feb 4 2026 on EV-TOU-5 gives delivery of `81.43` with the archive
+against `72.74` without — the current tariff's window understates a January bill by **$8.69**.
+This is the ~180 kWh/month misplacement recorded in README, now sourced and corrected.
+
+The hour-block schema also grew an optional `months` field for windows that genuinely apply to
+part of a season. **No shipped rate file uses it**, precisely because this case turned out not to
+be one: the restriction was a revision, not a recurring rule. The support is tested against a
+fixture.
 
 ## Taxes and fees — bases derived from the same bill
 

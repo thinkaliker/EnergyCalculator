@@ -341,6 +341,18 @@ tbody tr.trueup-row td { border-bottom: 2px solid var(--accent); }
    confidence as one the user copied off their bill. */
 small.inferred { color: var(--warn); }
 
+/* --- rate revisions ------------------------------------------------------ */
+
+#rate-revisions { margin-top: 34px; }
+#rate-revisions h3 { font-size: 1.05rem; margin: 0 0 4px; }
+#rate-revisions p { margin: 0 0 10px; }
+.revision-list { margin: 0 0 10px; padding-left: 20px; }
+.revision-list li { margin-bottom: 3px; }
+/* Distinct from the accent-coloured .tag: this one reports how far a number has
+   been checked, which is a caution and must not read as a neutral label. */
+.tag.unverified { background: transparent; color: var(--warn); border: 1px solid var(--warn); }
+.unverified-note { color: var(--muted); font-size: 0.85rem; }
+
 #provider-table-wrap { margin-top: 34px; }
 #provider-table-wrap h3 { font-size: 1.05rem; margin: 0 0 4px; }
 #provider-table-wrap .lede.small { margin: 0 0 14px; }

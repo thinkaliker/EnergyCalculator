@@ -63,8 +63,12 @@ export function createPriceRanker({ plan, overlay, calendar }) {
 
   const cache = new Map();
 
-  const curveFor = (season, dayType) => {
-    const key = `${season}|${dayType}`;
+  // Keyed by month as well as season, because a TOU window can apply to only
+  // part of a season — 10am-2pm is super-off-peak in March and April and
+  // off-peak the rest of winter. A battery scheduled against the wrong one of
+  // those charges at the day's most expensive hour instead of its cheapest.
+  const curveFor = (season, dayType, month) => {
+    const key = `${season}|${dayType}|${month}`;
     if (cache.has(key)) return cache.get(key);
 
     const delivery = plan.delivery?.[season]?.[dayType];
@@ -79,7 +83,7 @@ export function createPriceRanker({ plan, overlay, calendar }) {
 
     const hourly = new Array(24).fill(0);
     for (let h = 0; h < 24; h++) {
-      hourly[h] = priceAtHour(delivery, h) + priceAtHour(generation, h);
+      hourly[h] = priceAtHour(delivery, h, month) + priceAtHour(generation, h, month);
     }
     const min = Math.min(...hourly);
     const max = Math.max(...hourly);
@@ -98,15 +102,18 @@ export function createPriceRanker({ plan, overlay, calendar }) {
   return (date) => {
     const season = calendar.seasonOf(date);
     const dayType = calendar.dayTypeOf(date);
-    return curveFor(season, dayType)[date.getHours()];
+    return curveFor(season, dayType, date.getMonth() + 1)[date.getHours()];
   };
 }
 
-function priceAtHour(blocks, hour) {
-  for (const b of blocks) {
-    if (hour >= b.start_hour && hour < b.end_hour) return b.price_per_kwh;
-  }
-  throw new Error(`No price block covers hour ${hour}.`);
+// Month-scoped blocks win over unscoped ones, which is how a narrow rule carves
+// a window out of a broader one. Mirrors cost.js — the two must agree, or the
+// battery would optimise against prices the bill never charges.
+function priceAtHour(blocks, hour, month) {
+  const covers = (b) => hour >= b.start_hour && hour < b.end_hour;
+  const b = blocks.find((x) => x.months?.includes(month) && covers(x)) ?? blocks.find((x) => !x.months && covers(x));
+  if (!b) throw new Error(`No price block covers hour ${hour} in month ${month}.`);
+  return b.price_per_kwh;
 }
 
 /**

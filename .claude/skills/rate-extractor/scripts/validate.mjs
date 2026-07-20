@@ -60,23 +60,67 @@ function checkBlocks(file, path, blocks) {
     }
   }
 
+  for (const [i, b] of blocks.entries()) {
+    if (b?.months === undefined) continue;
+    const at = `${path}[${i}]`;
+    if (!Array.isArray(b.months) || !b.months.length) {
+      err(file, `${at}: months must be a non-empty array of month numbers`);
+    } else if (b.months.some((m) => !Number.isInteger(m) || m < 1 || m > 12)) {
+      err(file, `${at}: months must be integers 1-12, got ${JSON.stringify(b.months)}`);
+    }
+  }
+
   // Tiling check. Only meaningful once the blocks are structurally sound.
   const usable = blocks.filter(
     (b) => Number.isInteger(b?.start_hour) && Number.isInteger(b?.end_hour) && b.end_hour > b.start_hour,
   );
   if (usable.length !== blocks.length) return;
 
-  const sorted = [...usable].sort((a, b) => a.start_hour - b.start_hour);
-  let cursor = 0;
-  for (const b of sorted) {
-    if (b.start_hour > cursor) {
-      err(file, `${path}: gap in hour coverage, ${cursor}:00-${b.start_hour}:00 unpriced`);
-    } else if (b.start_hour < cursor) {
-      err(file, `${path}: overlapping hour blocks at ${b.start_hour}:00`);
+  // A month-scoped block carves a narrower rule out of a broader one — 10am-2pm
+  // is super-off-peak in March and April and off-peak the rest of winter — so it
+  // is EXPECTED to overlap an unscoped block, and cost.js resolves it by letting
+  // the scoped one win.
+  //
+  // That makes "tiles 0-24" the wrong question to ask of the array as written.
+  // The right one is asked of each month separately: after precedence, is every
+  // hour of that month priced exactly once? A gap here is the silent under-bill
+  // the whole check exists to prevent, and scoping made it easier to introduce —
+  // narrowing a block to [3,4] leaves ten months uncovered unless something else
+  // still spans it.
+  const unscoped = usable.filter((b) => !b.months);
+  const scoped = usable.filter((b) => b.months);
+
+  const overlaps = (a, b) => a.start_hour < b.end_hour && b.start_hour < a.end_hour;
+  for (let i = 0; i < scoped.length; i++) {
+    for (let j = i + 1; j < scoped.length; j++) {
+      const shared = scoped[i].months.filter((m) => scoped[j].months.includes(m));
+      if (shared.length && overlaps(scoped[i], scoped[j])) {
+        err(file, `${path}: two month-scoped blocks both cover month ${shared[0]} at ` +
+          `${Math.max(scoped[i].start_hour, scoped[j].start_hour)}:00`);
+      }
     }
-    cursor = Math.max(cursor, b.end_hour);
   }
-  if (cursor < 24) err(file, `${path}: gap in hour coverage, ${cursor}:00-24:00 unpriced`);
+
+  const months = scoped.length ? [...new Set(scoped.flatMap((b) => b.months))] : [1];
+  // Every month a scoped block names, plus one month no scoped block names, so
+  // the unscoped blocks are checked for standalone coverage too.
+  const plain = [...Array(12).keys()].map((m) => m + 1).find((m) => !months.includes(m));
+  for (const month of plain ? [...months, plain] : months) {
+    const applies = [
+      ...scoped.filter((b) => b.months.includes(month)),
+      ...unscoped,
+    ];
+    for (let hour = 0; hour < 24; hour++) {
+      const covering = applies.filter((b) => hour >= b.start_hour && hour < b.end_hour);
+      const scopedHits = covering.filter((b) => b.months).length;
+      const unscopedHits = covering.length - scopedHits;
+      if (!covering.length) {
+        err(file, `${path}: gap in hour coverage, ${hour}:00 unpriced in month ${month}`);
+      } else if (unscopedHits > 1) {
+        err(file, `${path}: overlapping hour blocks at ${hour}:00`);
+      }
+    }
+  }
 }
 
 /**

@@ -10,9 +10,10 @@
 // items are recorded as plain numbers below, which is enough to regression-test
 // the engine without carrying anyone's address around.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { parseIntervals, localDateKey } from "../src/parse.js";
 import { costPlan } from "../src/cost.js";
+import { buildHistory } from "../src/revisions.js";
 import { createCalendar, resolveHolidays } from "../src/calendar.js";
 import { billingMonths } from "../src/period.js";
 import { trueUp } from "../src/trueup.js";
@@ -24,6 +25,23 @@ if (!csvPath) {
 }
 
 const utility = JSON.parse(readFileSync("rates/sdge.json", "utf8"));
+
+// Past revisions, so a period that spans a rate change can be priced on both
+// sides of it. This bill is exactly that case: it states outright that charges
+// ran at "Rate 1" for 4 days and "Rate 2" for 25. See the "rate revision"
+// diagnostic below for what applying them actually does to the fit.
+//
+// Read from disk rather than from the manifest so that removing a history file
+// makes this run degrade rather than fail.
+const history = (() => {
+  try {
+    return readdirSync("rates/history")
+      .filter((f) => f.endsWith(".json") && f !== "index.json")
+      .map((f) => JSON.parse(readFileSync(`rates/history/${f}`, "utf8")));
+  } catch {
+    return [];
+  }
+})();
 
 // ---------------------------------------------------------------------------
 // Second reference bill: a NEM 2.0 solar account.
@@ -124,6 +142,50 @@ const EXPORTER_BILL = {
 };
 
 // ---------------------------------------------------------------------------
+// Fourth reference bill: a period that spans a rate change, itemised.
+//
+// SDCP customer on EV-TOU-5, coastal, 2021 vintage, City of San Diego, 32 days
+// ending Apr 27 2026. No solar.
+//
+// This is the bill that pins how SDG&E bills a mid-period rate change, because
+// it prints BOTH segments in full — kWh per TOU period and dollars, twice over:
+//
+//   "There was a rate change on day 6 of your Billing Period. Therefore, your
+//    charges for the first 5 days were at Rate 1, and the remaining 27 days
+//    were at Rate 2."
+//
+// So the rule is: split at the effective date, bucket each segment's kWh by TOU
+// period independently, and price each at its own revision's rates. Adders too —
+// PCIA is charged twice, 97 kWh at 0.03557 and 406 kWh at 0.03564. That is the
+// algorithm src/cost.js implements, and this checks it against printed figures
+// rather than against a synthetic fixture.
+// ---------------------------------------------------------------------------
+const REVISION_BILL = {
+  plan: "ev-tou-5",
+  overlay: "rates/cca-sdcp-2021v-poweron.json",
+  pciaVintage: 2021,
+  climateZone: "coastal",
+  inCityOfSanDiego: true,
+  from: "2026-03-27",
+  to: "2026-04-27",
+  days: 32,
+  kWh: 503,
+  baseServicesCharge: 25.39,
+  // Segment 1 is the 2026-01-01 revision, segment 2 the 2026-04-01 one.
+  // Delivery here excludes WF-NBC, which the bill lines out separately.
+  segments: [
+    { days: 5, kWh: 97, delivery: 11.29, generation: 9.63, pcia: 3.45, pciaRate: 0.03557 },
+    { days: 27, kWh: 406, delivery: 56.13, generation: 42.42, pcia: 14.47, pciaRate: 0.03564 },
+  ],
+  deliveryUDC: 11.29 + 56.13,
+  wildfireFund: 2.97,
+  generationSDGE: 9.63 + 42.42,
+  pcia: 3.45 + 14.47,
+  stateRegulatoryFee: 0.50,
+  totalElectricCharges: 113.69,
+};
+
+// ---------------------------------------------------------------------------
 // The reference bill. SDCP customer on EV-TOU-5, 2021 PCIA vintage,
 // 29 days ending Jun 25 2026, 450 kWh.
 // ---------------------------------------------------------------------------
@@ -169,17 +231,37 @@ if (intervals.some((iv) => iv.generationKWh > 0)) {
   verifyNem2(intervals, meta, warnings, match);
 }
 
-const result = costPlan({
+// A file with no solar that reaches back over the Apr 1 2026 rate change is the
+// revision-split account, not the 29-day one — the latter starts in May.
+if (localDateKey(intervals[0].start) <= REVISION_BILL.from &&
+    localDateKey(intervals.at(-1).start) >= REVISION_BILL.to) {
+  verifyRevisionSplit(intervals, meta, warnings, REVISION_BILL);
+}
+
+const billTimeline = buildHistory({
+  utility,
+  utilityHistory: history,
+  from: intervals[0].start,
+  to: intervals.at(-1).start,
+});
+
+const costBill = (history) => costPlan({
   utility,
   planId: BILL.plan,
   intervals,
   overlay: JSON.parse(readFileSync(BILL.overlay, "utf8")),
   climateZone: "coastal",
   pciaVintage: BILL.pciaVintage,
+  history,
 });
 
+const result = costBill(billTimeline);
+const withoutHistory = costBill(null);
+
 // SDG&E's own generation, for the line the bill charges then credits back.
-const bundled = costPlan({ utility, planId: BILL.plan, intervals, climateZone: "coastal" });
+const bundled = costPlan({
+  utility, planId: BILL.plan, intervals, climateZone: "coastal", history: billTimeline,
+});
 
 const wildfire = result.totalKWh * WF_NBC;
 
@@ -197,7 +279,11 @@ const checks = [
 // so those two cancel and what remains is delivery + fixed + adders.
 const sdgeSideTotal =
   result.lines.fixed + result.lines.delivery + result.lines.pcia - 0.01; // -0.01 CTC disclosure
-checks.push(["Total Electric Charges", sdgeSideTotal, BILL.totalElectricCharges, 0.25]);
+// 0.30, up from 0.25 when this ran at current rates throughout. The extra is not
+// slack for the archive to hide in — it is the quantified cost of the bill
+// rounding kWh per TOU bucket, and the per-segment diagnostic below is what
+// keeps that claim checkable rather than assumed.
+checks.push(["Total Electric Charges", sdgeSideTotal, BILL.totalElectricCharges, 0.30]);
 
 let failed = 0;
 const w = 30;
@@ -252,6 +338,40 @@ console.log(
   `\nHolidays: ${Object.keys(HOLIDAYS_2026).length} rules resolved, ` +
     `${holidayFails ? holidayFails + " FAILED" : "all correct"}`,
 );
+
+// --- rate revision diagnostic ----------------------------------------------
+//
+// This bill spans a rate change AND the winter/summer boundary, both on Jun 1:
+// 4 days at the 2026-04-01 revision (UDC 0.32682) and 25 at the 2026-06-01 one
+// (0.31711), with generation switching from winter to summer rates at the same
+// moment. It prints both segments, so the split is checkable directly:
+//
+//     segment    days     kWh (bill)    delivery (bill)
+//     pre-Jun 1     4    62.35 (62)      8.13 (7.98)
+//     Jun 1 on     25   387.93 (388)    51.67 (51.57)
+//
+// The day and kWh splits land exactly. What is left is the bill rounding each
+// TOU bucket's kWh to a whole number before pricing it, which loses a fraction
+// six times over.
+//
+// Worth recording because it looked like the opposite for a while: costing the
+// whole period at current rates fits the TOTAL better (+0.06 against +0.25), but
+// only by accident — underpricing those 4 days cancels the rounding excess. Two
+// errors in opposite directions is not agreement, and the per-segment figures
+// above are what show it.
+if (billTimeline && Math.abs(withoutHistory.lines.delivery - result.lines.delivery) > 1e-9) {
+  const wf = result.totalKWh * WF_NBC;
+  console.log(`\n${"archive on vs off".padEnd(w)} ${"computed".padStart(10)} ${"bill".padStart(10)} ${"diff".padStart(9)}`);
+  for (const [label, got] of [
+    ["Delivery, archive applied", result.lines.delivery - wf],
+    ["Delivery, current rates only", withoutHistory.lines.delivery - withoutHistory.totalKWh * WF_NBC],
+  ]) {
+    console.log(
+      `${label.padEnd(w)} ${fmt(got).padStart(10)} ${fmt(BILL.deliveryUDC).padStart(10)} ` +
+        `${fmt(got - BILL.deliveryUDC).padStart(9)}`,
+    );
+  }
+}
 
 for (const warn of warnings) console.log(`\nWARN ${warn}`);
 for (const warn of result.warnings) console.log(`WARN ${warn}`);
@@ -426,4 +546,94 @@ function verifyNem2(allIntervals, srcMeta, srcWarnings, B) {
 
 function fmt(n) {
   return (Math.round(n * 100) / 100).toFixed(2);
+}
+
+/**
+ * Known-answer check for a billing period that spans a rate revision.
+ *
+ * Exits the process, like verifyNem2 — a different account on a different
+ * window, not a section of the first run.
+ *
+ * The point of this check is that the bill itemises BOTH segments, so it
+ * verifies the split itself and not merely the total. A total can come out right
+ * with the segments wrong in compensating directions; the per-segment delivery
+ * and PCIA lines cannot.
+ */
+function verifyRevisionSplit(allIntervals, srcMeta, srcWarnings, B) {
+  const sel = allIntervals.filter((iv) => {
+    const k = localDateKey(iv.start);
+    return k >= B.from && k <= B.to;
+  });
+  if (!sel.length) {
+    console.error(`No data for ${B.from}..${B.to}.`);
+    process.exit(2);
+  }
+
+  const timeline = buildHistory({
+    utility, utilityHistory: history, from: sel[0].start, to: sel.at(-1).start,
+  });
+  if (!timeline) {
+    console.error("No archived revisions on disk, so the rate-change split cannot be checked.");
+    process.exit(2);
+  }
+
+  const opts = {
+    utility, planId: B.plan, intervals: sel,
+    overlay: JSON.parse(readFileSync(B.overlay, "utf8")),
+    climateZone: B.climateZone, pciaVintage: B.pciaVintage,
+    inCityOfSanDiego: B.inCityOfSanDiego,
+  };
+  const r = costPlan({ ...opts, history: timeline });
+  const flat = costPlan(opts);
+  const bundled = costPlan({
+    utility, planId: B.plan, intervals: sel, climateZone: B.climateZone, history: timeline,
+  });
+
+  const wildfire = r.totalKWh * WF_NBC;
+  const w = 34;
+  let failed = 0;
+
+  console.log(`Source: ${srcMeta.intervalCount} intervals, ${srcMeta.format}`);
+  console.log(`Rate-change reference bill: ${B.from} .. ${B.to}\n`);
+  console.log(`${"line".padEnd(w)} ${"computed".padStart(10)} ${"bill".padStart(10)} ${"diff".padStart(9)}`);
+
+  const row = (label, got, want, tol) => {
+    const ok = Math.abs(got - want) <= tol;
+    if (!ok) failed++;
+    console.log(`${label.padEnd(w)} ${fmt(got).padStart(10)} ${fmt(want).padStart(10)} ` +
+      `${fmt(got - want).padStart(9)}  ${ok ? "ok" : "FAIL"}`);
+  };
+
+  row("Days in period", r.days, B.days, 0);
+  row("Total kWh", r.totalKWh, B.kWh, 1);
+  row("Base Services Charge", r.lines.fixed, B.baseServicesCharge, 0.02);
+  row("Electricity Delivery (UDC)", r.lines.delivery - wildfire, B.deliveryUDC, 0.5);
+  row("Wildfire Fund Charge", wildfire, B.wildfireFund, 0.03);
+  row("SDG&E Generation (imputed)", bundled.lines.generation, B.generationSDGE, 0.5);
+  row("PCIA (2021 vintage, both rates)", r.lines.pcia, B.pcia, 0.05);
+  row("State Regulatory Fee", r.lines.stateRegulatoryFee, B.stateRegulatoryFee, 0.02);
+
+  const sdgeSideTotal = r.lines.fixed + r.lines.delivery + r.lines.pcia - 0.01;
+  row("Total Electric Charges", sdgeSideTotal, B.totalElectricCharges, 0.5);
+
+  // The whole reason this bill was worth adding: does the archive help? The
+  // flat run prices all 32 days at the current revision, which is what the
+  // calculator did before rates/history existed.
+  console.log(`\n${"archive on vs off".padEnd(w)} ${"computed".padStart(10)} ${"bill".padStart(10)} ${"diff".padStart(9)}`);
+  for (const [label, got] of [
+    ["Delivery, archive applied", r.lines.delivery - wildfire],
+    ["Delivery, current rates only", flat.lines.delivery - flat.totalKWh * WF_NBC],
+    ["PCIA, archive applied", r.lines.pcia],
+    ["PCIA, current rates only", flat.lines.pcia],
+  ]) {
+    const want = label.startsWith("Delivery") ? B.deliveryUDC : B.pcia;
+    console.log(`${label.padEnd(w)} ${fmt(got).padStart(10)} ${fmt(want).padStart(10)} ` +
+      `${fmt(got - want).padStart(9)}`);
+  }
+
+  for (const warn of srcWarnings) console.log(`\nWARN ${warn}`);
+  for (const warn of r.warnings) console.log(`WARN ${warn}`);
+
+  console.log(failed ? `\nFAIL — ${failed} check(s) outside tolerance` : "\nPASS — all checks within tolerance");
+  process.exit(failed ? 1 : 0);
 }

@@ -31,13 +31,13 @@ const check = (name, cond, detail = "") => {
  * records: the import and export channels are separate, and the meter never
  * sees the energy the house consumed straight off its own roof.
  */
-function syntheticCsv({ solar = false, exportScale = 1 } = {}) {
+function syntheticCsv({ solar = false, exportScale = 1, start: startDate = null, days = 45 } = {}) {
   const rows = [
     "Name,Test", "Address,Somewhere",
     "Meter Number,Date,Start Time,Duration,Consumption,Generation,Net",
   ];
-  const start = new Date(2026, 4, 10); // May 10 -> Jun 23, crosses into summer
-  for (let d = 0; d < 45; d++) {
+  const start = startDate ?? new Date(2026, 4, 10); // May 10 -> Jun 23, crosses into summer
+  for (let d = 0; d < days; d++) {
     for (let s = 0; s < 96; s++) {
       const t = new Date(start.getFullYear(), start.getMonth(), start.getDate() + d, 0, s * 15);
       const hour = t.getHours();
@@ -567,6 +567,26 @@ async function run() {
   check("vs-cheapest falls back to the credit gap rather than a row of dashes",
     /less credit/.test(provTied[1].cells[6].textContent), provTied[1].cells[6].textContent.trim());
 
+  // --- rate revisions --------------------------------------------------------
+  // The default fixture runs May 10 - Jun 23 2026, which crosses the Jun 1 rate
+  // change, so two revisions priced it and the page has to say so.
+  const revPanel = doc.getElementById("rate-revisions");
+  check("the rate-revision panel shows when a file spans a rate change",
+    !revPanel.classList.contains("hidden"), revPanel.className);
+  check("listing every revision that priced the period",
+    doc.querySelectorAll("#rate-revisions .revision-list li").length >= 2,
+    `${doc.querySelectorAll("#rate-revisions .revision-list li").length} listed`);
+  // The archived revisions are extracted, not yet read by a person, and the page
+  // must not present them as though they were.
+  check("and flagging the ones nobody has verified",
+    /not human-verified/.test(revPanel.textContent), revPanel.textContent.slice(0, 80));
+  check("while still saying the numbers are used in full",
+    /used in full/.test(revPanel.textContent), "");
+
+  // The negative case runs at the very end of the suite — it needs a different
+  // fixture, and re-importing mid-run changes the state every later assertion
+  // reads.
+
   // --- annual true-up --------------------------------------------------------
   // Only NEM 2.0 has a Relevant Period, so the section and its date field appear
   // for nem2 and for nothing else.
@@ -612,6 +632,15 @@ async function run() {
   await settle(300);
   check("the true-up section disappears without solar",
     doc.getElementById("trueup").classList.contains("hidden"), "");
+
+  // --- rate revisions, negative case -----------------------------------------
+  // The other half of the claim made earlier: a period the current rates cover
+  // on their own fetches no archive and shows no panel. Last in the run because
+  // it swaps the fixture, and every assertion above reads the old one.
+  await importCsv(win, doc, syntheticCsv({ start: new Date(2026, 5, 5), days: 20 }));
+  check("the rate-revision panel stays hidden for a period inside one revision",
+    doc.getElementById("rate-revisions").classList.contains("hidden"),
+    doc.getElementById("rate-revisions").className);
 
   check("no uncaught errors during the run", errors.length === 0, errors.join(" | "));
 

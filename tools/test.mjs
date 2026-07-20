@@ -194,9 +194,16 @@ check("profile: same kWh costs more in the evening", eveCost.total > nightCost.t
 
 // Every existing load profile, pinned to the cent-fraction. applyLoadProfile
 // grew a clamp and an import/export split so solar could ride the same path;
-// these totals were recorded before that change and must not move by so much as
-// a rounding bit. A load profile is always positive, so the new branch is dead
-// code for all six — this is the check that proves it stayed dead.
+// these totals must not move by so much as a rounding bit for that reason. A
+// load profile is always positive, so the new branch is dead code for all six —
+// this is the check that proves it stayed dead.
+//
+// These use rates/sdge.json with no archive, so they are pinned to the CURRENT
+// revision. That matters for the fixture day, Jan 5: under the current tariff
+// 10am-2pm is winter super-off-peak, but it was ordinary off-peak before
+// 2026-03-01. Costing a real January against the archive gives a different and
+// higher answer — see the rate-revision checks below. Both are right; they are
+// answers to different questions.
 const PINNED = {
   "ev-evening": 10.1856032,
   "ev-midday": 8.7877432,
@@ -691,6 +698,228 @@ const straddle = relevantPeriods(new Date(2025, 5, 18), new Date(2026, 6, 18), n
 check("relevantPeriods: a 13-month file spans more than one period", straddle.length > 1, true);
 check("relevantPeriods: periods are 12 months apart",
   straddle.at(-1).start.getFullYear() - straddle.at(-2).start.getFullYear(), 1);
+
+// --- month-scoped TOU windows -----------------------------------------------
+//
+// A hour block may carry `months`, restricting it to part of its season, and a
+// scoped block wins over the unscoped one it carves out of.
+//
+// NO SHIPPED RATE FILE USES THIS TODAY, and the story of why is worth keeping.
+// A 2/26-3/26/26 bill's TOU chart reads "10:00 a.m. - 2:00 p.m. in March and
+// April", which looks exactly like a recurring seasonal rule. It is not: the
+// April and July bills print the same window with no month restriction at all.
+// It was a temporary state of the tariff, so it belongs in the revision archive
+// rather than in a month list. The schema stays because the shape is real and
+// cheap to support — but it is tested against a fixture, not against a rate file
+// that would then be wrong.
+// An on-peak block so the curve has a spread for the ranker to work against,
+// and the same blocks on both day types so a fixture date landing on a Sunday
+// cannot quietly change what is being tested.
+const scopedBlocks = () => [
+  { start_hour: 0, end_hour: 16, price_per_kwh: 0.30 },
+  { start_hour: 16, end_hour: 21, price_per_kwh: 0.60 },
+  { start_hour: 21, end_hour: 24, price_per_kwh: 0.30 },
+  { start_hour: 10, end_hour: 14, months: [3, 4], price_per_kwh: 0.05 },
+];
+const scopedPlan = {
+  id: "scoped-test",
+  name: "fixture",
+  delivery: {
+    winter: { weekday: scopedBlocks(), weekend: scopedBlocks() },
+    summer: { weekday: scopedBlocks(), weekend: scopedBlocks() },
+  },
+};
+scopedPlan.generation = JSON.parse(JSON.stringify(scopedPlan.delivery));
+const scopedUtility = { ...utility, plans: [...utility.plans, scopedPlan] };
+
+const middayDay = (month) =>
+  Array.from({ length: 96 }, (_, i) => {
+    const start = new Date(2026, month - 1, 5, Math.floor(i / 4), (i % 4) * 15);
+    const hour = start.getHours();
+    const kWh = hour >= 10 && hour < 14 ? 0.25 : 0;
+    return { start, durationSeconds: 900, kWh, generationKWh: 0, netKWh: kWh };
+  });
+const scopedCost = (month) =>
+  costPlan({ utility: scopedUtility, planId: "scoped-test", intervals: middayDay(month), climateZone: "coastal" })
+    .lines.delivery;
+
+check("months: a named month takes the scoped price", scopedCost(3), 4 * 0.05, 1e-9);
+check("months: and so does the other one", scopedCost(4), 4 * 0.05, 1e-9);
+check("months: a month outside the list falls to the unscoped block", scopedCost(1), 4 * 0.30, 1e-9);
+check("months: including the last month of the season", scopedCost(5), 4 * 0.30, 1e-9);
+// The scoped block must not leave the ten months it does not name unpriced —
+// the failure mode is a silent under-bill, not an error.
+check("months: no hour goes unpriced in an unnamed month", (() => {
+  try { scopedCost(12); return true; } catch { return false; }
+})(), true);
+
+// The same rule has to reach the battery scheduler, or it would charge at what
+// it believes is the day's cheapest hour and be billed at nearly the dearest.
+// Asserted as a comparison against another off-peak hour rather than against an
+// absolute rank: in a named month the scoped hour must be strictly the cheaper
+// of the two, and outside one it must be indistinguishable from it.
+const scopedRank = createPriceRanker({ plan: scopedPlan, calendar: cal });
+const rankAtHour = (month, hour) => scopedRank(new Date(2026, month - 1, 5, hour)).rank;
+check("months: the ranker prices the scoped hour below off-peak in March",
+  rankAtHour(3, 11) < rankAtHour(3, 8), true);
+check("months: and identically to off-peak in January",
+  rankAtHour(1, 11), rankAtHour(1, 8), 1e-12);
+
+// --- rate revisions ---------------------------------------------------------
+import { buildTimeline, buildHistory } from "../src/revisions.js";
+
+// Fixtures, not real rate files. Everything the resolver does is date
+// arithmetic, so a document that carries only a provider and an effective date
+// exercises all of it — and keeps these checks from breaking every time a real
+// rate is revised.
+const rev = (date, tag) => ({ provider: "sdge", effective_date: date, tag });
+const tl = buildTimeline({
+  current: rev("2026-06-01", "jun"),
+  history: [rev("2026-01-01", "jan"), rev("2026-04-01", "apr")],
+  from: new Date(2026, 3, 15),
+  to: new Date(2026, 5, 25),
+});
+check("revisions: a day inside the newest revision resolves to it",
+  tl.revisionAt(new Date(2026, 5, 25)).doc.tag, "jun");
+check("revisions: the effective date itself belongs to the new revision",
+  tl.revisionAt(new Date(2026, 5, 1)).doc.tag, "jun");
+check("revisions: the day before belongs to the old one",
+  tl.revisionAt(new Date(2026, 4, 31)).doc.tag, "apr");
+check("revisions: history is ordered, not assumed sorted",
+  tl.revisionAt(new Date(2026, 1, 10)).doc.tag, "jan");
+check("revisions: a covered window warns about nothing", tl.warnings.length, 0);
+
+// The fallback is the policy the whole partly-backfilled archive rests on. Both
+// halves are asserted together: it must resolve to something usable AND it must
+// say so, because a silent substitution is the exact failure this exists to
+// prevent.
+const gapped = buildTimeline({
+  current: rev("2026-06-01", "jun"),
+  history: [rev("2026-01-01", "jan")],
+  from: new Date(2025, 6, 1),
+  to: new Date(2026, 5, 30),
+});
+check("revisions: a day before the archive falls back to the oldest",
+  gapped.revisionAt(new Date(2025, 6, 1)).doc.tag, "jan");
+check("revisions: and says so", gapped.warnings.length, 1);
+check("revisions: naming the date it fell back to",
+  gapped.warnings[0].includes("2026-01-01"), true);
+
+check("revisions: two documents claiming one date is refused", (() => {
+  try {
+    buildTimeline({ current: rev("2026-06-01", "a"), history: [rev("2026-06-01", "b")] });
+    return false;
+  } catch { return true; }
+})(), true);
+
+// "No archive" and "an archive of one" must not be different code paths — this
+// null is what lets costPlan keep its original path bit-identical.
+check("revisions: no history at all builds no timeline",
+  buildHistory({ utility, from: new Date(2026, 0, 1), to: new Date(2026, 1, 1) }), null);
+
+// --- costing across a revision boundary -------------------------------------
+//
+// The older revision is derived from the real file rather than hand-built, so
+// these checks stay about the boundary and not about any particular rate. Every
+// price is halved, which makes "which side of the boundary was this priced on"
+// answerable from the total alone.
+const halve = (node) => {
+  if (Array.isArray(node)) return node.map(halve);
+  if (node && typeof node === "object") {
+    return Object.fromEntries(Object.entries(node).map(([k, v]) =>
+      [k, k.endsWith("_per_kwh") || k === "price_per_kwh" || k === "daily_service_charge"
+        ? (typeof v === "number" ? v / 2 : halve(v))
+        : halve(v)]));
+  }
+  return node;
+};
+const older = { ...halve(utility), effective_date: "2026-01-01" };
+
+// Ten days either side of Jun 1 2026, one kWh an hour throughout.
+//
+// Note this window also crosses the winter/summer boundary, which falls on the
+// same day. That is not a flaw to design out — it is the realistic case, and it
+// is why these checks compare against the two segments costed separately rather
+// than against the midpoint of two whole-period runs. A midpoint would only be
+// the right answer if season and day type were uniform across the window, and
+// on a real calendar they never are.
+const acrossRevision = Array.from({ length: 24 * 20 }, (_, i) => {
+  const start = new Date(2026, 4, 22, i);
+  return { start, durationSeconds: 3600, kWh: 1, generationKWh: 0, netKWh: 1 };
+});
+const beforeBoundary = acrossRevision.filter((iv) => iv.start < new Date(2026, 5, 1));
+const afterBoundary = acrossRevision.filter((iv) => iv.start >= new Date(2026, 5, 1));
+const spanCost = (history) =>
+  costPlan({ utility, planId: "tou-dr1", intervals: acrossRevision, climateZone: "coastal", history });
+
+const atCurrent = spanCost(null);
+const withHist = spanCost(buildHistory({
+  utility, utilityHistory: [older],
+  from: acrossRevision[0].start, to: acrossRevision.at(-1).start,
+}));
+const allOld = costPlan({ utility: older, planId: "tou-dr1", intervals: acrossRevision, climateZone: "coastal" });
+
+check("revisions: a spanning period costs less than all-new rates",
+  withHist.total < atCurrent.total, true);
+check("revisions: and more than all-old rates", withHist.total > allOld.total, true);
+
+// The exact assertion: energy before the boundary priced at the old rates, plus
+// energy after it priced at the new ones. Equality to the cent is what shows the
+// split landed on the right day rather than merely somewhere between.
+const oldHalf = costPlan({ utility: older, planId: "tou-dr1", intervals: beforeBoundary, climateZone: "coastal" });
+const newHalf = costPlan({ utility, planId: "tou-dr1", intervals: afterBoundary, climateZone: "coastal" });
+check("revisions: delivery is each segment at its own rates",
+  withHist.lines.delivery, oldHalf.lines.delivery + newHalf.lines.delivery, 1e-9);
+check("revisions: and so is generation",
+  withHist.lines.generation, oldHalf.lines.generation + newHalf.lines.generation, 1e-9);
+
+// The fixed charge is per-day, not per-kWh, so it exercises a separate code
+// path from everything above — 10 days at each rate.
+check("revisions: the daily service charge splits by day",
+  withHist.lines.fixed, 10 * 0.79343 + 10 * (0.79343 / 2), 1e-9);
+
+// Tiers are priced against an allowance that accrues per day, so a segment must
+// earn only the days it holds. Getting this wrong hands each side a full
+// period's allowance and prices nearly everything at tier 1 — which would show
+// up here as a cost below the all-old figure.
+const tieredSpan = costPlan({
+  utility, planId: "dr", intervals: acrossRevision, climateZone: "coastal",
+  history: buildHistory({ utility, utilityHistory: [older], from: acrossRevision[0].start, to: acrossRevision.at(-1).start }),
+});
+const tieredOld = costPlan({ utility: older, planId: "dr", intervals: acrossRevision, climateZone: "coastal" });
+const tieredNew = costPlan({ utility, planId: "dr", intervals: acrossRevision, climateZone: "coastal" });
+check("revisions: a tiered plan splits at the boundary too",
+  tieredSpan.total > tieredOld.total && tieredSpan.total < tieredNew.total, true);
+check("revisions: and prorates the allowance rather than doubling it",
+  tieredSpan.lines.delivery,
+  costPlan({ utility: older, planId: "dr", intervals: beforeBoundary, climateZone: "coastal" }).lines.delivery +
+    costPlan({ utility, planId: "dr", intervals: afterBoundary, climateZone: "coastal" }).lines.delivery,
+  1e-9);
+
+// Two revisions that happen to share a generation price must still bucket
+// separately, or the delivery rate of whichever interval was seen last would be
+// applied to all of them. Same generation prices, different delivery.
+const sameGen = {
+  ...utility,
+  effective_date: "2026-01-01",
+  plans: utility.plans.map((p) => p.id !== "tou-dr1" ? p : {
+    ...p,
+    delivery: halve(p.delivery),
+  }),
+};
+const nem2Span = costPlan({
+  utility, planId: "tou-dr1", climateZone: "coastal",
+  intervals: acrossRevision.map((iv) => ({ ...iv, generationKWh: 0.4, netKWh: 0.6 })),
+  nem: { mode: "nem2" },
+  history: buildHistory({ utility, utilityHistory: [sameGen], from: acrossRevision[0].start, to: acrossRevision.at(-1).start }),
+});
+const nem2New = costPlan({
+  utility, planId: "tou-dr1", climateZone: "coastal",
+  intervals: acrossRevision.map((iv) => ({ ...iv, generationKWh: 0.4, netKWh: 0.6 })),
+  nem: { mode: "nem2" },
+});
+check("revisions: identical generation prices still bucket separately",
+  nem2Span.lines.delivery < nem2New.lines.delivery, true);
 
 // --- error handling --------------------------------------------------------
 check("unknown plan throws", (() => {
