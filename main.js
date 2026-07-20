@@ -20,7 +20,7 @@ import { activeIntervals, costOptions } from "./js/ui/compute.js";
 import {
   renderTrimNote, renderTrueUp, renderCoverage, meterEligiblePlans, byCost,
   renderHeadline, renderTable, renderExcluded, renderCaveats, renderRateRevisions,
-  renderProvenance, providerRows, renderProviderTable,
+  renderProvenance, renderBuildInfo, providerRows, renderProviderTable,
 } from "./js/ui/results.js";
 import {
   renderAddedLoad, onProfileChange, syncBatteryControls, solarYield,
@@ -104,6 +104,15 @@ async function init() {
     renderAddedLoad();
   });
   $("battery-strategy").addEventListener("change", renderAddedLoad);
+
+  // Deliberately not awaited, and deliberately last. The footer stamp is
+  // cosmetic, and putting a network round trip ahead of the wiring above delays
+  // the file input becoming usable for it — which is a real race, not a
+  // theoretical one: it broke the step navigation in testing.
+  //
+  // A 404 is the normal case for a locally served copy, so a failure here just
+  // leaves the source link standing alone.
+  getJSON("build-info.json").then(renderBuildInfo).catch(() => {});
 }
 
 async function loadProfiles() {

@@ -396,6 +396,33 @@ export function renderCaveats() {
     .join("");
 }
 
+const REPO = "https://github.com/thinkaliker/EnergyCalculator";
+
+/**
+ * Which commit this copy of the page was built from.
+ *
+ * `build-info.json` is written by the Pages workflow, so it exists on a deployed
+ * copy and not on a local one. That asymmetry is deliberate: the stamp answers
+ * "is what I am looking at current", which is only a question about a deployment.
+ * Serving the folder locally simply leaves the line off rather than showing a
+ * hash that would be wrong the moment anything was edited.
+ */
+export function renderBuildInfo(info) {
+  const el = $("build-info");
+  if (!el || !info?.commit) return;
+  const when = new Date(info.committedAt);
+  const stamp = isNaN(when)
+    ? esc(info.committedAt ?? "")
+    : when.toLocaleString(undefined, {
+        year: "numeric", month: "short", day: "numeric",
+        hour: "numeric", minute: "2-digit",
+      });
+  el.innerHTML =
+    ` · built from <a href="${REPO}/commit/${esc(info.commit)}" target="_blank" rel="noopener">` +
+    `<code>${esc(info.shortCommit ?? info.commit.slice(0, 7))}</code></a>` +
+    (stamp ? `, committed ${esc(stamp)}` : "");
+}
+
 export function renderProvenance(index) {
   const u = state.utility;
   $("rate-provenance").innerHTML =

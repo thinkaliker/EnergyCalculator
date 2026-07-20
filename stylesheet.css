@@ -399,6 +399,14 @@ footer {
   max-width: 1080px;
 }
 footer p { margin: 0 0 8px; max-width: 72ch; }
+footer a { color: inherit; }
+.colophon code {
+  font-family: var(--mono);
+  font-size: 0.95em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--surface);
+}
 
 @media (max-width: 640px) {
   .masthead { padding: 36px 0 28px; }

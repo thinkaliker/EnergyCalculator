@@ -169,6 +169,21 @@ async function run() {
     [...doc.getElementById("nem").options].map((o) => o.value).join(),
     "none,nem2,nem3");
 
+  // --- colophon ------------------------------------------------------------
+  // The source link is static markup and must always be there. The build stamp
+  // comes from build-info.json, which the Pages workflow writes at deploy time —
+  // so this suite sees it only if someone has generated one locally. Both
+  // outcomes are valid; what must never happen is a broken half-rendered line.
+  const colophon = doc.querySelector(".colophon");
+  check("footer links to the source repository",
+    colophon?.querySelector('a[href*="github.com/thinkaliker/EnergyCalculator"]') !== null,
+    colophon?.textContent.trim() ?? "no colophon");
+  const stamp = doc.getElementById("build-info");
+  check("build stamp is either a commit link or nothing at all",
+    stamp.textContent === "" ||
+      /^ · built from [0-9a-f]{7,}/.test(stamp.textContent),
+    JSON.stringify(stamp.textContent));
+
   // Feed the synthetic export through the real file input. This first one is
   // imported without walking the steps open, so the gating can be checked in the
   // state a real user lands in.

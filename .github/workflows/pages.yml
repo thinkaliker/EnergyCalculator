@@ -1,0 +1,71 @@
+# Deploy the site to GitHub Pages, stamping the commit it was built from.
+#
+# The site is static and needs no build, so the only reason this workflow exists
+# rather than serving the branch directly is `build-info.json`: a page served
+# straight from a branch has no way to know which commit it is. Generating it
+# here keeps the footer honest without the page having to ask an external
+# service at runtime — which would mean every visitor's browser contacting
+# api.github.com, on a page whose whole claim is that it talks to nobody.
+#
+# Switching to this requires one repository setting:
+#   Settings -> Pages -> Build and deployment -> Source: GitHub Actions
+
+name: Deploy to Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a run in progress finish rather than cancelling it — a half-finished
+# deploy is worse than a slightly stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The rate files are the thing most likely to be wrong, and a structural
+      # error in one produces a confident wrong bill rather than a visible
+      # failure. Validate before publishing, not after.
+      - name: Validate rate files
+        run: |
+          node .claude/skills/rate-extractor/scripts/validate.mjs rates
+          node .claude/skills/rate-extractor/scripts/validate.mjs rates/history
+
+      - name: Run unit checks
+        run: node tools/test.mjs
+
+      - name: Stamp the build
+        run: |
+          printf '{\n  "commit": "%s",\n  "shortCommit": "%s",\n  "committedAt": "%s",\n  "builtAt": "%s"\n}\n' \
+            "$GITHUB_SHA" \
+            "$(git rev-parse --short "$GITHUB_SHA")" \
+            "$(git log -1 --format=%cI "$GITHUB_SHA")" \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            > build-info.json
+          cat build-info.json
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
