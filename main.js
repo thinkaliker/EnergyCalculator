@@ -25,6 +25,7 @@ import {
 import {
   renderAddedLoad, onProfileChange, syncBatteryControls, solarYield,
 } from "./js/ui/scenario-panel.js";
+import { looksLikeBattery } from "./js/scenario.js";
 import {
   drawPlanChart, drawShapeChart, drawMonthlyChart, drawProviderChart,
 } from "./js/ui/charts.js";
@@ -105,7 +106,10 @@ async function init() {
     syncBatteryControls();
     renderAddedLoad();
   });
-  $("battery-strategy").addEventListener("change", renderAddedLoad);
+  $("has-battery")?.addEventListener("change", () => {
+    syncBatteryControls();
+    renderAddedLoad();
+  });
 
   // Deliberately not awaited, and deliberately last. The footer stamp is
   // cosmetic, and putting a network round trip ahead of the wiring above delays
@@ -167,6 +171,11 @@ function readFile(file) {
       const { intervals, warnings, meta } = parseIntervals(reader.result);
       state.raw = intervals;
       state.selectedPlanId = null;
+      // Pre-tick "I already have a battery" from the export pattern. Set once
+      // per file rather than on every recompute, so a user who overrides the
+      // guess keeps their choice for the rest of the session. A new file is a
+      // new household, so it is re-guessed then.
+      if ($("has-battery")) $("has-battery").checked = looksLikeBattery(intervals);
       // A different file is a different household. Collapse back to step 1 so
       // the zone, provider and solar answers get re-confirmed against it rather
       // than silently carrying over from whoever was loaded before.

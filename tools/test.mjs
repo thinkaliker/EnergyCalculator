@@ -63,6 +63,82 @@ check("format sniffing: xml", (() => {
   return "no throw";
 })(), true);
 
+// --- ESPI XML: two-channel solar/battery accounts --------------------------
+// A solar or battery account meters delivered and received energy on separate
+// MeterReadings, each linked to a ReadingType whose flowDirection says which is
+// which (1 = imported, 19 = exported). The parser must split them and merge by
+// timestamp — summing both as consumption double-counts, which on a battery
+// arbitrage account that exports hard at peak inflated the bill several-fold.
+// Reproduces the structure of a real Sempra/SDG&E export in miniature: two
+// readings per channel at the same two timestamps.
+const espi = `<?xml version="1.0"?><feed xmlns="http://naesb.org/espi" xmlns:atom="http://www.w3.org/2005/Atom">
+  <entry>
+    <atom:link href="/espi/1_1/resource/ReadingType/0203" rel="self"/>
+    <content><ReadingType><flowDirection>1</flowDirection><powerOfTenMultiplier>0</powerOfTenMultiplier><uom>72</uom></ReadingType></content>
+  </entry>
+  <entry>
+    <atom:link href="/espi/1_1/resource/ReadingType/0204" rel="self"/>
+    <content><ReadingType><flowDirection>19</flowDirection><powerOfTenMultiplier>0</powerOfTenMultiplier><uom>72</uom></ReadingType></content>
+  </entry>
+  <entry>
+    <atom:link href="/espi/1_1/resource/RetailCustomer/1/UsagePoint/x/MeterReading/03" rel="self"/>
+    <atom:link href="/espi/1_1/resource/ReadingType/0203" rel="related"/>
+    <content><MeterReading/></content>
+  </entry>
+  <entry>
+    <atom:link href="/espi/1_1/resource/RetailCustomer/1/UsagePoint/y/MeterReading/04" rel="self"/>
+    <atom:link href="/espi/1_1/resource/ReadingType/0204" rel="related"/>
+    <content><MeterReading/></content>
+  </entry>
+  <entry>
+    <atom:link href="/espi/1_1/resource/RetailCustomer/1/UsagePoint/x/MeterReading/03/IntervalBlock/1" rel="self"/>
+    <content><IntervalBlock>
+      <IntervalReading><timePeriod><start>1750575600</start><duration>900</duration></timePeriod><value>1000</value></IntervalReading>
+      <IntervalReading><timePeriod><start>1750576500</start><duration>900</duration></timePeriod><value>4000</value></IntervalReading>
+    </IntervalBlock></content>
+  </entry>
+  <entry>
+    <atom:link href="/espi/1_1/resource/RetailCustomer/1/UsagePoint/y/MeterReading/04/IntervalBlock/1" rel="self"/>
+    <content><IntervalBlock>
+      <IntervalReading><timePeriod><start>1750575600</start><duration>900</duration></timePeriod><value>250</value></IntervalReading>
+      <IntervalReading><timePeriod><start>1750576500</start><duration>900</duration></timePeriod><value>3000</value></IntervalReading>
+    </IntervalBlock></content>
+  </entry>
+</feed>`;
+const x = parseIntervals(espi);
+check("espi: two channels merge to one interval per timestamp", x.intervals.length, 2);
+check("espi: import channel becomes kWh", x.intervals[0].kWh, 1.0, 1e-9);
+check("espi: export channel becomes generationKWh", x.intervals[0].generationKWh, 0.25, 1e-9);
+check("espi: net is import minus export", x.intervals[0].netKWh, 0.75, 1e-9);
+// The second interval exports more than it imports — the net goes negative, and
+// nothing must clamp it, or a net-exporting hour would read as consumption.
+check("espi: a net-exporting interval stays negative", x.intervals[1].netKWh, 1.0, 1e-9);
+check("espi: total consumption is the import channel only", x.meta.totalKWh, 5.0, 1e-9);
+check("espi: flags that the file carries exports", x.meta.hasExport, true);
+check("espi: a clean two-channel file warns about nothing", x.warnings.length, 0);
+
+// A file may declare the same channel at more than one resolution — a real SDG&E
+// export ships hourly, 15-minute and daily import ReadingTypes. When two carry
+// data, summing them would double that channel. The parser keeps the finest and
+// warns. Here the import side has both a 3600s block (1 reading, 9 kWh) and a
+// 900s block (1 reading, 2 kWh) at DIFFERENT timestamps, so a bug would total
+// 11; keeping only the 900s reading totals 2.
+const dualRes = `<?xml version="1.0"?><feed>
+  <entry><atom:link href="/resource/ReadingType/A" rel="self"/>
+    <content><ReadingType><flowDirection>1</flowDirection><powerOfTenMultiplier>0</powerOfTenMultiplier><uom>72</uom><intervalLength>3600</intervalLength></ReadingType></content></entry>
+  <entry><atom:link href="/resource/ReadingType/B" rel="self"/>
+    <content><ReadingType><flowDirection>1</flowDirection><powerOfTenMultiplier>0</powerOfTenMultiplier><uom>72</uom><intervalLength>900</intervalLength></ReadingType></content></entry>
+  <entry><atom:link href="/resource/MeterReading/01" rel="self"/><atom:link href="/resource/ReadingType/A" rel="related"/><content><MeterReading/></content></entry>
+  <entry><atom:link href="/resource/MeterReading/02" rel="self"/><atom:link href="/resource/ReadingType/B" rel="related"/><content><MeterReading/></content></entry>
+  <entry><atom:link href="/resource/MeterReading/01/IntervalBlock/1" rel="self"/>
+    <content><IntervalBlock><IntervalReading><start>1750575600</start><duration>3600</duration><value>9000</value></IntervalReading></IntervalBlock></content></entry>
+  <entry><atom:link href="/resource/MeterReading/02/IntervalBlock/1" rel="self"/>
+    <content><IntervalBlock><IntervalReading><start>1750579200</start><duration>900</duration><value>2000</value></IntervalReading></IntervalBlock></content></entry>
+</feed>`;
+const dr = parseIntervals(dualRes);
+check("espi: mixed resolution keeps only the finest channel", dr.meta.totalKWh, 2.0, 1e-9);
+check("espi: and warns that it did", dr.warnings.some((w) => /resolution/.test(w)), true);
+
 // --- calendar --------------------------------------------------------------
 const cal = createCalendar(utility);
 check("season: Jun 1 is summer", cal.seasonOf(new Date(2026, 5, 1)), "summer");
@@ -501,7 +577,40 @@ check("nem2: no exports gives the same total as no solar at all",
 // logic; what has to hold is that the transform splits a signed net into the
 // meter's two registers correctly.
 
-import { applyBattery, createPriceRanker, BATTERY_SIZES } from "../js/scenario.js";
+import { applyBattery, createPriceRanker, BATTERY_SIZES, looksLikeBattery } from "../js/scenario.js";
+
+// --- detecting a battery already in the meter data -------------------------
+// The guard that stops "add a battery" from stacking on an account that already
+// has one keys off export during 4-8pm: solar cannot put much of a year's output
+// there, so a large evening-export share is stored energy discharging into the
+// price peak. Build a year of quarter-hours with a chosen export shape.
+const yearWithExport = (exportAtHour) => {
+  const out = [];
+  for (let d = 0; d < 365; d++) {
+    for (let h = 0; h < 24; h++) {
+      out.push({
+        start: new Date(2026, 0, 1 + d, h), // Date rolls day 1+d over month ends
+        durationSeconds: 3600,
+        kWh: 0,
+        generationKWh: exportAtHour(h),
+        netKWh: -exportAtHour(h),
+      });
+    }
+  }
+  return out;
+};
+// Solar-only: exports midday, nothing after 4pm.
+check("battery detect: a midday-only export shape reads as no battery",
+  looksLikeBattery(yearWithExport((h) => (h >= 9 && h < 15 ? 3 : 0))), false);
+// Arbitrage battery: the bulk of export lands in the 4-8pm peak.
+check("battery detect: heavy 4-8pm export reads as a battery",
+  looksLikeBattery(yearWithExport((h) => (h >= 16 && h < 20 ? 3 : 0))), true);
+// A file with no export at all is not a battery, and must not divide by zero.
+check("battery detect: no export is not a battery",
+  looksLikeBattery(yearWithExport(() => 0)), false);
+// A trace of evening export below the noise floor does not trip it.
+check("battery detect: a negligible amount of export is ignored",
+  looksLikeBattery([{ start: new Date(2026, 5, 1, 18), durationSeconds: 3600, kWh: 0, generationKWh: 1, netKWh: -1 }]), false);
 
 const solarProfile = JSON.parse(readFileSync("profiles/solar-rooftop.json", "utf8"));
 check("solar profile: 12 months x 24 hours",

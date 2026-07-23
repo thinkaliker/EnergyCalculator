@@ -257,6 +257,24 @@ label.check span { display: flex; flex-direction: column; gap: 2px; }
 .notice p { margin: 6px 0 0; }
 .notice :first-child { margin-top: 0; }
 
+/* The two battery strategies, costed side by side. The winning row is tinted so
+   the better choice is legible at a glance without reading both numbers. */
+.strategy-compare {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+}
+.strategy-row {
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.strategy-row.win {
+  background: var(--good-soft);
+  box-shadow: inset 3px 0 0 var(--good);
+}
+
 /* --- headline ---------------------------------------------------------- */
 
 .headline {

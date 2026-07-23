@@ -1,3 +1,5 @@
+.DS_Store
+
 # Green Button exports and bills carry name, address, account and meter numbers.
 # Never commit them; tools/verify.mjs takes the path as an argument instead.
 *Electric_*.csv

@@ -138,53 +138,164 @@ function parseCsvDateTime(dateStr, timeStr) {
 // the narrow case where that trade is reasonable — do not extend this into
 // general-purpose XML handling.
 //
-// UNVERIFIED: written against the ESPI spec, not against a real SDG&E export.
-// The unit handling in particular (uom 72 = Wh, powerOfTenMultiplier) has not
-// been checked against a known answer the way the CSV path has. Treat XML
-// results as provisional until one is run through tools/verify.mjs.
+// Validated against a real Sempra/SDG&E export from a NEM 2.0 solar-plus-battery
+// account: the parsed net for one billing period reproduced the bill's stated
+// kWh to the unit, and the imported total matched the bill's Wildfire Fund base.
+// The two-channel split below is the thing that has to be right — see the ESPI
+// fixture in tools/test.mjs for the shape that regression-guards it.
 
 const tag = (xml, name) => {
   const m = new RegExp(`<(?:\\w+:)?${name}[^>]*>([^<]*)</(?:\\w+:)?${name}>`).exec(xml);
   return m ? m[1].trim() : null;
 };
 
+// A solar or battery account meters two channels, not one: energy delivered to
+// the house (flowDirection 1) and energy the house pushes back to the grid
+// (flowDirection 19). ESPI carries them as separate MeterReadings, each linked
+// to a ReadingType that declares its direction and scaling. Summing both as
+// consumption — which the old parser did — double-counts, and for a battery
+// arbitrage account that exports hard at peak it inflates the bill several-fold
+// while erasing the solar entirely. So the two channels are kept apart and
+// merged by timestamp, matching the shape the CSV path already produces:
+// kWh = imported, generationKWh = exported.
+const FLOW_IMPORT = "1";
+const FLOW_EXPORT = "19";
+
+// href=".../ReadingType/0203" -> "0203". The id is the last path segment, so the
+// same helper reads a ReadingType's own id and a MeterReading's reference to one.
+const lastPathId = (href, resource) => {
+  const m = new RegExp(`/${resource}/([^/"]+)`).exec(href);
+  return m ? m[1] : null;
+};
+
+const entries = (xml) => xml.match(/<(?:\w+:)?entry>[\s\S]*?<\/(?:\w+:)?entry>/g) ?? [];
+
+const selfHref = (entry, resource) => {
+  const re = new RegExp(`href="([^"]*/${resource}/[^"]*)"\\s+rel="self"`);
+  const m = re.exec(entry);
+  return m ? m[1] : null;
+};
+
 export function parseEspiXml(text) {
-  const warnings = [
-    "ESPI XML parsing has not been validated against a real export — verify totals against your bill.",
-  ];
+  const warnings = [];
 
-  // ReadingType carries the units for every reading in the file.
-  const uom = Number(tag(text, "uom") ?? 72);
-  const multiplier = Number(tag(text, "powerOfTenMultiplier") ?? 0);
-  if (uom !== 72) {
-    warnings.push(`ReadingType uom is ${uom}, expected 72 (Wh). Values may be misscaled.`);
-  }
-  // Wh -> kWh, after applying the file's own power-of-ten multiplier.
-  const toKWh = (raw) => (raw * Math.pow(10, multiplier)) / 1000;
-
-  const intervals = [];
-  const blockRe = /<(?:\w+:)?IntervalReading[^>]*>([\s\S]*?)<\/(?:\w+:)?IntervalReading>/g;
-  let m;
-  while ((m = blockRe.exec(text)) !== null) {
-    const block = m[1];
-    const startEpoch = Number(tag(block, "start"));
-    const duration = Number(tag(block, "duration"));
-    const value = Number(tag(block, "value"));
-    if (!Number.isFinite(startEpoch) || !Number.isFinite(value)) continue;
-
-    intervals.push({
-      start: new Date(startEpoch * 1000),
-      durationSeconds: Number.isFinite(duration) ? duration : 900,
-      kWh: toKWh(value),
-      generationKWh: 0,
-      netKWh: toKWh(value),
+  // ReadingType id -> { flow, multiplier }. Only the direction and scaling
+  // matter downstream; the rest of the ReadingType is metadata.
+  const readingTypes = new Map();
+  for (const e of entries(text)) {
+    const href = selfHref(e, "ReadingType");
+    if (!href || !/<(?:\w+:)?ReadingType>/.test(e)) continue;
+    const id = lastPathId(href, "ReadingType");
+    readingTypes.set(id, {
+      flow: tag(e, "flowDirection"),
+      multiplier: Number(tag(e, "powerOfTenMultiplier") ?? 0),
+      uom: Number(tag(e, "uom") ?? 72),
+      intervalLength: Number(tag(e, "intervalLength") ?? 0),
     });
   }
 
-  if (!intervals.length) {
+  // MeterReading id -> ReadingType id, taken from the MeterReading entry's
+  // rel="related" link. This is the hop that tells an IntervalBlock its
+  // direction, since the block itself names only its MeterReading.
+  const meterToReadingType = new Map();
+  for (const e of entries(text)) {
+    if (!/<(?:\w+:)?MeterReading\s*\/?>/.test(e)) continue;
+    const selfMr = selfHref(e, "MeterReading");
+    const related = /href="([^"]*\/ReadingType\/[^"]*)"\s+rel="related"/.exec(e);
+    if (selfMr && related) {
+      meterToReadingType.set(lastPathId(selfMr, "MeterReading"), lastPathId(related[1], "ReadingType"));
+    }
+  }
+
+  // Resolve each IntervalBlock to its channel once, cheaply, before reading any
+  // values. A missing mapping is treated as import — a single-channel file with
+  // no ReadingType linkage still costs correctly, as it did before.
+  const readingRe = /<(?:\w+:)?IntervalReading[^>]*>([\s\S]*?)<\/(?:\w+:)?IntervalReading>/g;
+  const blocks = [];
+  for (const e of entries(text)) {
+    if (!/<(?:\w+:)?IntervalBlock>/.test(e) || !/<(?:\w+:)?IntervalReading[^>]*>/.test(e)) continue;
+    const mrId = lastPathId(selfHref(e, "MeterReading") ?? "", "MeterReading");
+    const rt = readingTypes.get(meterToReadingType.get(mrId));
+    blocks.push({ e, rt, flow: rt?.flow ?? FLOW_IMPORT, intervalLength: rt?.intervalLength ?? 0 });
+  }
+  const sawDirection = blocks.some((b) => b.rt != null);
+
+  // A file can declare the same channel at more than one resolution — Chris's
+  // ships hourly, 15-minute and daily ReadingTypes for the import side. Normally
+  // only one carries data; if two ever do, summing them would silently double
+  // that channel, the very failure this parser was rewritten to stop. So per
+  // flow direction keep only the finest resolution present, and say so.
+  const finest = new Map(); // flow -> smallest non-zero intervalLength with data
+  for (const b of blocks) {
+    const cur = finest.get(b.flow);
+    if (b.intervalLength && (cur == null || b.intervalLength < cur)) finest.set(b.flow, b.intervalLength);
+  }
+  for (const [flow, len] of finest) {
+    const lengths = new Set(blocks.filter((b) => b.flow === flow && b.intervalLength).map((b) => b.intervalLength));
+    if (lengths.size > 1) {
+      warnings.push(
+        `Channel ${flow === FLOW_EXPORT ? "exported" : "imported"} is present at ${lengths.size} ` +
+          `resolutions (${[...lengths].sort((a, c) => a - c).join(", ")}s); using the ${len}s readings.`,
+      );
+    }
+  }
+
+  // Merge the channels by start time. A key present in only one map is a real
+  // reading with the other side at zero, not missing data.
+  const byStart = new Map(); // epoch -> { start, durationSeconds, import, export }
+
+  for (const { e, rt, flow, intervalLength } of blocks) {
+    // Skip a coarser duplicate of a channel we also have at finer resolution.
+    if (intervalLength && finest.get(flow) && intervalLength !== finest.get(flow)) continue;
+    const multiplier = rt?.multiplier ?? 0;
+    if (rt && rt.uom !== 72) {
+      warnings.push(`ReadingType uom is ${rt.uom}, expected 72 (Wh). Values may be misscaled.`);
+    }
+    const toKWh = (raw) => (raw * Math.pow(10, multiplier)) / 1000;
+
+    let m;
+    while ((m = readingRe.exec(e)) !== null) {
+      const block = m[1];
+      const startEpoch = Number(tag(block, "start"));
+      const duration = Number(tag(block, "duration"));
+      const value = Number(tag(block, "value"));
+      if (!Number.isFinite(startEpoch) || !Number.isFinite(value)) continue;
+
+      let iv = byStart.get(startEpoch);
+      if (!iv) {
+        iv = {
+          start: new Date(startEpoch * 1000),
+          durationSeconds: Number.isFinite(duration) ? duration : 900,
+          import: 0,
+          export: 0,
+        };
+        byStart.set(startEpoch, iv);
+      }
+      if (flow === FLOW_EXPORT) iv.export += toKWh(value);
+      else iv.import += toKWh(value);
+    }
+  }
+
+  if (!byStart.size) {
     throw new Error("No <IntervalReading> elements found — not a Green Button ESPI export?");
   }
-  return finish(intervals, { format: "espi-xml", uom, powerOfTenMultiplier: multiplier }, warnings);
+
+  const intervals = [...byStart.values()].map((iv) => ({
+    start: iv.start,
+    durationSeconds: iv.durationSeconds,
+    kWh: iv.import,
+    generationKWh: iv.export,
+    netKWh: iv.import - iv.export,
+  }));
+
+  const exported = intervals.some((iv) => iv.generationKWh > 0);
+  if (!sawDirection) {
+    warnings.push(
+      "No ReadingType flow direction found — every reading was treated as consumption. " +
+        "If this account has solar or a battery, its exports are not being credited.",
+    );
+  }
+  return finish(intervals, { format: "espi-xml", hasExport: exported }, warnings);
 }
 
 // ---------------------------------------------------------------------------

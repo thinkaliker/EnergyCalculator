@@ -290,17 +290,14 @@
           <option value="large">Large — about 27 kWh</option>
         </select>
       </label>
-      <label id="battery-strategy-wrap" class="hidden">
-        Battery is for
-        <select id="battery-strategy">
-          <option value="solar">Storing my own solar</option>
-          <option value="grid">Buying cheap, using at peak</option>
-        </select>
-      </label>
       <label>
         Installed cost
         <input type="number" id="scenario-cost" min="0" step="500" placeholder="optional">
         <small>Fill this in for a simple payback. Before any tax credit.</small>
+      </label>
+      <label class="check" id="has-battery-wrap">
+        <input type="checkbox" id="has-battery">
+        <span>I already have a home battery<small>Ticks itself when your export pattern shows one. Turns &ldquo;add a battery&rdquo; off — the scenario can&rsquo;t model a second one over a meter that already reflects yours.</small></span>
       </label>
     </div>
 

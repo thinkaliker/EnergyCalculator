@@ -39,6 +39,42 @@ export const BATTERY_STRATEGIES = ["solar", "grid"];
 const DEFAULTS = { roundTripEfficiency: 0.9, reservePct: 10 };
 
 /**
+ * Guess whether the meter data already reflects a home battery.
+ *
+ * This is not needed to cost the bill — the intervals are what the meter
+ * recorded, battery and all, and the engine prices them as-is. It exists only to
+ * stop the "add a battery" scenario from stacking a hypothetical battery on top
+ * of a real one, which produces a meaningless number the same way "add solar"
+ * would on a file that already has panels.
+ *
+ * The signal is export during the 4-8pm window. Solar cannot put a large share
+ * of a year's generation there — the sun is too low by 4pm in winter and past
+ * its peak in summer — so a house exporting a fifth or more of its total then is
+ * discharging stored energy into the evening price peak. Measured against real
+ * files: a solar-only home sits near 2%, a solar home with heavy overnight load
+ * near 10%, and a grid-arbitrage battery at 35%+.
+ *
+ * It is a hint, not a verdict. A battery that only ever self-consumes never
+ * exports at peak and will read as absent here — but such a battery also barely
+ * reshapes the meter, so a hypothetical one modelled on top of it is far less
+ * wrong. The cases this misses are the cases where missing it costs least.
+ */
+export function looksLikeBattery(intervals) {
+  let total = 0;
+  let evening = 0;
+  for (const iv of intervals) {
+    const g = iv.generationKWh ?? 0;
+    if (g <= 0) continue;
+    total += g;
+    const h = iv.start.getHours();
+    if (h >= 16 && h < 20) evening += g;
+  }
+  // Below a few dozen kWh of annual export the ratio is noise, not a battery.
+  if (total < 50) return false;
+  return evening / total > 0.2;
+}
+
+/**
  * Rank an hour's price against the rest of its own day type and season.
  *
  * Peak windows are NOT hardcoded to 4-9pm. EV-TOU-5's expensive hours are not

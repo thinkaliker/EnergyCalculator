@@ -31,7 +31,7 @@ const check = (name, cond, detail = "") => {
  * records: the import and export channels are separate, and the meter never
  * sees the energy the house consumed straight off its own roof.
  */
-function syntheticCsv({ solar = false, exportScale = 1, start: startDate = null, days = 45 } = {}) {
+function syntheticCsv({ solar = false, exportScale = 1, start: startDate = null, days = 45, battery = false } = {}) {
   const rows = [
     "Name,Test", "Address,Somewhere",
     "Meter Number,Date,Start Time,Duration,Consumption,Generation,Net",
@@ -47,8 +47,13 @@ function syntheticCsv({ solar = false, exportScale = 1, start: startDate = null,
       // making the household a net generator over the period.
       // exportScale > 1 turns the same household into a net generator, which is
       // a different case entirely: the bill floors at zero rather than shrinking.
-      const exported = solar && hour >= 9 && hour < 16 ? 0.35 * exportScale : 0;
-      const imported = solar && exported > 0 ? 0.02 : kwh;
+      // A battery account discharges to the grid during the 4-8pm peak, which
+      // solar cannot do — this is the shape the "already have a battery" guard
+      // keys off. Overnight it charges hard from the grid.
+      const midday = solar && hour >= 9 && hour < 16 ? 0.35 * exportScale : 0;
+      const evening = battery && hour >= 16 && hour < 20 ? 0.6 : 0;
+      const exported = midday + evening;
+      const imported = battery && hour < 6 ? 1.2 : solar && exported > 0 ? 0.02 : kwh;
       const mer = hour < 12 ? "AM" : "PM";
       const h12 = hour % 12 === 0 ? 12 : hour % 12;
       const time = `${h12}:${String(t.getMinutes()).padStart(2, "0")} ${mer}`;
@@ -569,8 +574,16 @@ async function run() {
   check("a battery on top of solar saves more", batterySaving > solarSaving,
     `${solarSaving} -> ${batterySaving}`);
   check("battery admits it is not an optimiser", /forecast/.test(result()), result().slice(0, 160));
-  check("battery strategy picker appears with a battery",
-    !doc.getElementById("battery-strategy-wrap").classList.contains("hidden"));
+  // Both strategies are costed and shown together — no toggle. The headline is
+  // whichever saves more.
+  check("both battery strategies are shown side by side",
+    /Storing your own solar/.test(result()) && /Buying cheap/.test(result()),
+    result().slice(0, 200));
+  check("the two strategies render as compare rows",
+    doc.querySelectorAll("#load-result .strategy-row").length === 2,
+    `${doc.querySelectorAll("#load-result .strategy-row").length} rows`);
+  check("exactly one strategy is marked the winner",
+    doc.querySelectorAll("#load-result .strategy-row.win").length === 1, "");
 
   // Payback must not appear until a cost is supplied — a payback figure derived
   // from a number nobody entered is the worst thing this section could print.
@@ -590,16 +603,48 @@ async function run() {
   await waitFor(() => result() === "");
   check("clearing the scenario clears the result", result() === "", result().slice(0, 60));
 
-  // Grid arbitrage with no solar at all: the battery has to earn its keep by
-  // shifting when energy is bought, not by storing anything generated on site.
+  // A battery with no solar at all: "storing your own solar" has nothing to
+  // store, so it should save nothing, while "buying cheap" still arbitrages.
+  // Both rows appear regardless — the comparison is the point.
   setSelect(win, doc, "battery", "large");
-  setSelect(win, doc, "battery-strategy", "grid");
   await waitFor(() => /bill (drops|rises)/.test(result()));
   check("a battery alone still changes the bill", /bill (drops|rises)/.test(result()),
     result().slice(0, 90));
+  check("with no solar, the solar-storage strategy saves nothing",
+    /Storing your own solar<\/b> — saves nothing/.test(doc.getElementById("load-result").innerHTML),
+    doc.getElementById("load-result").innerHTML.match(/Storing your own solar[^<]*<\/b>[^<]*/)?.[0] ?? "?");
 
   setSelect(win, doc, "battery", "");
   await settle(300);
+
+  // --- a file that already reflects a battery --------------------------------
+  // Its export lands in the 4-8pm peak, so the guard should tick itself, switch
+  // "add a battery" off, and refuse to model a second one on top of the first.
+  await importCsv(win, doc, syntheticCsv({ solar: true, battery: true }));
+  await settle(300);
+  check("a battery account ticks the 'already have a battery' box",
+    doc.getElementById("has-battery").checked, "");
+  check("and disables the add-battery control",
+    doc.getElementById("battery").disabled, "");
+  // Trying to add one anyway must not take: the control is off and the scenario
+  // stays empty rather than costing a battery over a battery.
+  setSelect(win, doc, "battery", "large");
+  await settle(300);
+  check("selecting a battery does nothing while one is already present",
+    doc.getElementById("battery").value === "" && !/battery/i.test(doc.getElementById("load-result").textContent),
+    `${doc.getElementById("battery").value} | ${doc.getElementById("load-result").textContent.slice(0, 60)}`);
+  check("the note explains why add-battery is off",
+    /already have a battery/i.test(doc.getElementById("scenario-note").textContent),
+    doc.getElementById("scenario-note").textContent.slice(0, 80));
+
+  // Unticking it by hand hands control back — the account can then be modelled
+  // as if it had none, for a user who knows the export is not from a battery.
+  const hb = doc.getElementById("has-battery");
+  hb.checked = false;
+  hb.dispatchEvent(new win.Event("change"));
+  await settle(200);
+  check("unticking the box re-enables add-battery",
+    !doc.getElementById("battery").disabled, "");
 
   // --- net exporter: plans tie on the non-bypassable floor -------------------
   // A household that exports more than it imports cancels every charge credits
