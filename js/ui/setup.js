@@ -121,6 +121,30 @@ export function syncVintageToProvider() {
 export const currentOverlay = () =>
   state.overlays.find((o) => o.file === $("provider").value) ?? null;
 
+/**
+ * Return every Step-2 control to the state a freshly loaded page has, so a new
+ * usage file starts from defaults instead of silently inheriting the previous
+ * household's zone, city, provider, solar and bill-derived answers. Hiding the
+ * step (steps.js) collapses it out of view; this is what actually clears it, so
+ * the answers are gone rather than merely hidden until the step is reopened.
+ *
+ * Mirrors the defaults set at boot in main.js. The derived readings (true-up
+ * wrapper, solar notice) are re-rendered by the recompute that follows, so only
+ * the inputs and the bill summary are touched here.
+ */
+export function resetSetup() {
+  $("zone").selectedIndex = 0;
+  $("baseline-type").value = "basic";
+  $("separate-ev-meter").checked = false;
+  $("nem").value = "none";
+  syncNemControls();
+  $("trueup-date").value = "";
+  buildCitySelect();       // city -> San Diego (its default)
+  buildProviderSelect();   // that city's providers, SDG&E bundled selected
+  syncVintageToProvider(); // no overlay -> vintage wrapper hidden
+  $("bill-detected").innerHTML = "";
+}
+
 // --- solar -----------------------------------------------------------------
 
 /**

@@ -78,17 +78,27 @@ export function initStepNav() {
     btn.addEventListener("click", () => {
       const id = btn.dataset.next ?? btn.dataset.scroll;
       if (btn.dataset.next) revealStep(id);
-      const target = $(id);
-      if (!target || target.classList.contains("hidden")) return;
-      const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      target.scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "start" });
-      // Move focus too, or a keyboard user gets scrolled somewhere their next
-      // Tab doesn't continue from.
-      target.setAttribute("tabindex", "-1");
-      target.focus({ preventScroll: true });
+      scrollToStep(id);
     });
   }
   syncStepNav();
+}
+
+/**
+ * Scroll a step to the top of the view and move focus into it. Shared by the nav
+ * buttons and by a fresh file load, which returns the page to step 1 — loading a
+ * new file from the bottom of the page would otherwise collapse the steps above
+ * and leave the reader stranded in the empty space they left behind. Moving focus
+ * as well as scrolling keeps a keyboard user's next Tab continuing from where the
+ * page jumped to, not from where they were.
+ */
+export function scrollToStep(id) {
+  const target = $(id);
+  if (!target || target.classList.contains("hidden")) return;
+  const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  target.scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "start" });
+  target.setAttribute("tabindex", "-1");
+  target.focus({ preventScroll: true });
 }
 
 /**

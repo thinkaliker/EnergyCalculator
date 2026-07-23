@@ -14,7 +14,7 @@ import { state } from "./js/ui/state.js";
 import {
   buildZoneSelect, buildCitySelect, buildProviderSelect, buildVintageSelect,
   buildNbtVintageSelect, syncVintageToProvider, syncNemControls, nemMode,
-  currentOverlay, renderSolarDetected, applyBillFields,
+  currentOverlay, renderSolarDetected, applyBillFields, resetSetup,
 } from "./js/ui/setup.js";
 import { parseBill } from "./js/bill.js";
 import { activeIntervals, costOptions } from "./js/ui/compute.js";
@@ -24,13 +24,13 @@ import {
   renderProvenance, renderBuildInfo, providerRows, renderProviderTable,
 } from "./js/ui/results.js";
 import {
-  renderAddedLoad, onProfileChange, syncBatteryControls, solarYield,
+  renderAddedLoad, onProfileChange, syncBatteryControls, solarYield, resetScenario,
 } from "./js/ui/scenario-panel.js";
 import { looksLikeBattery } from "./js/scenario.js";
 import {
   drawPlanChart, drawShapeChart, drawMonthlyChart, drawProviderChart,
 } from "./js/ui/charts.js";
-import { initStepNav, syncStepNav, resetSteps, setOnReveal } from "./js/ui/steps.js";
+import { initStepNav, syncStepNav, resetSteps, setOnReveal, scrollToStep } from "./js/ui/steps.js";
 
 async function init() {
   const index = await getJSON("rates/index.json");
@@ -180,11 +180,15 @@ function readFile(file) {
       // guess keeps their choice for the rest of the session. A new file is a
       // new household, so it is re-guessed then.
       if ($("has-battery")) $("has-battery").checked = looksLikeBattery(intervals);
-      // A different file is a different household. Collapse back to step 1 so
-      // the zone, provider and solar answers get re-confirmed against it rather
-      // than silently carrying over from whoever was loaded before.
+      // A different file is a different household. Collapse back to step 1, clear
+      // the previous household's Step-2/Step-4 answers so nothing carries over
+      // silently, and return the page to step 1 — a re-upload from the bottom of
+      // a walked-open page would otherwise leave the reader in empty space.
       resetSteps();
+      resetSetup();
+      resetScenario();
       showImport(meta, warnings);
+      scrollToStep("step-import");
       // Before costing, since which revisions apply changes every figure below.
       await loadHistoryFor(intervals);
       recompute();

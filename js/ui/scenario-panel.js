@@ -30,6 +30,25 @@ export function syncBatteryControls() {
   }
 }
 
+/**
+ * Return the Step-4 counterfactual to its defaults on a new file. The result
+ * blocks (note, figure, chart) are cleared by the renderAddedLoad that the
+ * following recompute triggers, since with every input back at its default there
+ * is nothing to model. `has-battery` is deliberately left alone: readFile has
+ * just re-guessed it from this file's own export pattern.
+ */
+export function resetScenario() {
+  if (!$("step-load")) return; // step 4 is removed when no profile library loads
+  $("profile").value = "";
+  $("profile-kwh").value = "3000";
+  $("profile-note").textContent = "";
+  if ($("solar-kw")) $("solar-kw").value = "0";
+  if ($("solar-kwh")) $("solar-kwh").value = "0";
+  $("battery").value = "";
+  $("scenario-cost").value = "";
+  syncBatteryControls();
+}
+
 export function onProfileChange() {
   const p = state.profiles.find((x) => x.id === $("profile").value);
   if (p) {

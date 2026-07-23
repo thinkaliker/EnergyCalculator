@@ -422,8 +422,12 @@ async function run() {
     totalForPlan(doc, /EV-TOU-5/) > 0 && errors.length === 0,
     `${nem3Total} -> ${totalForPlan(doc, /EV-TOU-5/)}`);
 
-  // The dangerous case: solar plan selected, no export data in the file.
+  // The dangerous case: a non-solar file with a solar plan selected. A new file
+  // now resets the solar answer to "none", so the mismatch only arises when the
+  // user sets it by hand — which is exactly the moment the warning is for, so
+  // that is how the test reaches it.
   await importCsv(win, doc, syntheticCsv());
+  setSelect(win, doc, "nem", "nem2");
   await waitFor(() => /no exported energy/i.test(doc.getElementById("solar-detected").textContent));
   const warned = doc.getElementById("solar-detected").textContent;
   check("warns when a solar plan is picked on a non-solar file", /no exported energy/i.test(warned),
@@ -846,6 +850,39 @@ async function run() {
   check("bill import does not highlight a stated SDCP tier",
     doc.querySelector("#bill-detected .bill-highlight") === null,
     doc.querySelector("#bill-detected .bill-highlight")?.textContent.slice(0, 90) ?? "");
+
+  // A new file is a fresh start, not just a re-hide: loading one collapses the
+  // steps, CLEARS the previous household's Step-2/Step-4 answers, and returns
+  // focus to step 1 — so nothing carries over silently and a re-upload from the
+  // bottom of a walked-open page doesn't strand the reader in empty space.
+  await importCsv(win, doc, syntheticCsv({ solar: true })); // opens all steps
+  setSelect(win, doc, "nem", "nem2");
+  setSelect(win, doc, "city", "Escondido");
+  setSelect(win, doc, "zone", doc.getElementById("zone").options[1].value);
+  doc.getElementById("profile-kwh").value = "9999";
+  if (doc.getElementById("battery")) setSelect(win, doc, "battery", "small");
+  doc.getElementById("bill-detected").innerHTML = "<p>stale summary</p>";
+  await importCsv(win, doc, syntheticCsv(), { open: false }); // different file, don't reopen
+  const hid = (id) => doc.getElementById(id).classList.contains("hidden");
+  check("new file rehides steps 2-4",
+    hid("step-setup") && hid("step-results") && hid("step-load"),
+    [hid("step-setup"), hid("step-results"), hid("step-load")].join());
+  check("new file resets the solar answer to its default",
+    doc.getElementById("nem").value === "none", doc.getElementById("nem").value);
+  check("new file resets the city to its default",
+    doc.getElementById("city").value === "San Diego", doc.getElementById("city").value);
+  check("new file resets the climate zone to its default",
+    doc.getElementById("zone").selectedIndex === 0, String(doc.getElementById("zone").selectedIndex));
+  check("new file resets the added-load kWh to its default",
+    doc.getElementById("profile-kwh").value === "3000", doc.getElementById("profile-kwh").value);
+  check("new file clears the bill summary",
+    doc.getElementById("bill-detected").textContent.trim() === "",
+    doc.getElementById("bill-detected").textContent.slice(0, 40));
+  if (doc.getElementById("battery"))
+    check("new file resets the battery choice",
+      doc.getElementById("battery").value === "", doc.getElementById("battery").value);
+  check("new file returns focus to step 1",
+    doc.activeElement?.id === "step-import", doc.activeElement?.id ?? "none");
 
   check("no uncaught errors during the run", errors.length === 0, errors.join(" | "));
 
