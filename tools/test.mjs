@@ -8,6 +8,7 @@
 
 import { readFileSync } from "node:fs";
 import { parseSdgeCsv, parseIntervals, localDateKey } from "../js/parse.js";
+import { extractBillFields } from "../js/bill.js";
 import { createCalendar, resolveHolidays, expectedIntervalsForDay } from "../js/calendar.js";
 import { costPlan, rankPlans } from "../js/cost.js";
 import { nemEligiblePlans } from "../js/nem.js";
@@ -138,6 +139,72 @@ const dualRes = `<?xml version="1.0"?><feed>
 const dr = parseIntervals(dualRes);
 check("espi: mixed resolution keeps only the finest channel", dr.meta.totalKWh, 2.0, 1e-9);
 check("espi: and warns that it did", dr.warnings.some((w) => /resolution/.test(w)), true);
+
+// --- bill PDF field extraction ---------------------------------------------
+// extractBillFields is the pure half of the bill parser: text in, Step-2 fields
+// out. These blobs mimic what pdf.js pulls off a real bill's labelled lines, so
+// the whole mapping is exercised without a PDF or any personal data.
+const sdcpBill = [
+  "Rate: Time of Use - EVTOU5-Residential      Climate Zone: Inland",
+  "Baseline Allowance: 288 kWh",
+  "Your electric energy is provided by SAN DIEGO COMMUNITY POWER .",
+  "Your CCA rate is NEM DR-SES - 2021 Vintage.",
+  "Net Energy Metering Summary",
+  "Meter Number: XXXX   True-Up Date: 02/19/2026   Version: 2.0",
+  "City of San Diego Franchise Fee Differential   290 x 5.78%",
+].join("\n");
+const sdcp = extractBillFields(sdcpBill);
+check("bill: reads the climate zone", sdcp.fields.climateZone, "inland");
+check("bill: reads NEM 2.0 from the summary version", sdcp.fields.nemMode, "nem2");
+check("bill: converts the true-up date to ISO", sdcp.fields.trueUpDate, "2026-02-19");
+check("bill: identifies SDCP as the provider", sdcp.fields.ccaProvider, "sdcp");
+check("bill: reads the PCIA vintage", sdcp.fields.pciaVintage, 2021);
+check("bill: reads the city from the franchise line", sdcp.fields.city, "San Diego");
+check("bill: a clean SDCP bill raises no warning", sdcp.warnings.length, 0);
+
+// CEA: coastal, no vintage token, no "City of X ... Differential" line. The
+// fields a CEA bill genuinely lacks must come back null, not guessed.
+const ceaBill = [
+  "Rate: Time of Use - TOU-DR1-Residential   Climate Zone: Coastal",
+  "Your electric energy is provided by CLEAN ENERGY ALLIANCE .",
+  "Your CCA rate is NEM TOU-DR-1.",
+  "Net Energy Metering Summary   True-Up Date: 6/5/2026   Version: 2.0",
+  "Franchise Fee Equivalent Surcharge   200 x 1.10%",
+].join("\n");
+const ceaFields = extractBillFields(ceaBill);
+check("bill: CEA coastal zone", ceaFields.fields.climateZone, "coastal");
+check("bill: CEA provider", ceaFields.fields.ccaProvider, "cea");
+check("bill: a single-digit true-up month still pads to ISO", ceaFields.fields.trueUpDate, "2026-06-05");
+check("bill: no vintage on a CEA bill stays null", ceaFields.fields.pciaVintage, null);
+check("bill: no franchise-differential line leaves city null", ceaFields.fields.city, null);
+
+// The exact "City of San Diego Franchise Fee Differential" phrase also appears
+// in every bill's glossary as a definition, with no charge amount. That must not
+// hand a non-SD customer the SD city — only the real charge line (with a "x N%"
+// amount) counts.
+const glossaryOnly = extractBillFields(
+  "Climate Zone: Coastal\n" +
+    "Franchise Fee Equivalent Surcharge   56.82 x 1.10%   .63\n" +
+    "City of San Diego Franchise Fee Differential - A fee charged to SDG&E by the City of San Diego for the rights to operate",
+);
+check("bill: the glossary definition of the SD franchise fee is not a city match",
+  glossaryOnly.fields.city, null);
+
+// NEM 3.0 is detected but flagged, since the pattern is unverified against a
+// real Solar Billing Plan bill.
+const nbtBillText = "Climate Zone: Desert\nYour Solar Billing Plan charges this period\nTrue-Up Date: 01/10/2026";
+const nbtFields = extractBillFields(nbtBillText);
+check("bill: desert zone", nbtFields.fields.climateZone, "desert");
+check("bill: Solar Billing Plan reads as NEM 3.0", nbtFields.fields.nemMode, "nem3");
+check("bill: and the NEM 3.0 reading is flagged unverified",
+  nbtFields.warnings.some((w) => /unverified/i.test(w)), true);
+
+// A non-solar bill says nothing about solar — nemMode stays null rather than
+// defaulting either way, and an unknown zone string is rejected.
+const plainFields = extractBillFields("Rate: TOU-DR1-Residential   Climate Zone: Tropical\nTotal Charges $80.00");
+check("bill: a non-solar bill leaves the NEM mode unset", plainFields.fields.nemMode, null);
+check("bill: an unrecognized zone is rejected, not applied", plainFields.fields.climateZone, null);
+check("bill: and rejecting it is warned", plainFields.warnings.some((w) => /zone/i.test(w)), true);
 
 // --- calendar --------------------------------------------------------------
 const cal = createCalendar(utility);

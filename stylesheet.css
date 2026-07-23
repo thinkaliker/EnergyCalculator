@@ -186,6 +186,31 @@ h1 em { font-style: normal; color: var(--accent); }
 .btn:hover { filter: brightness(0.97); }
 .btn.primary { background: var(--accent); border-color: transparent; color: #fff; }
 
+/* Bill-import accelerator in Step 2 — a button and a one-line explanation, set
+   apart from the form fields it fills without shouting for attention. */
+.bill-import {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+}
+.bill-import .hint { color: var(--text-dim); font-size: 0.9rem; flex: 1 1 16ch; }
+.bill-miss { color: var(--text-dim); font-size: 0.86rem; }
+/* The one thing the import can't determine — the CCA product tier — called out
+   rather than muted, so it reads as "check this", not incidental fine print. */
+.bill-highlight {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--warn);
+  background: var(--warn-soft);
+  border-radius: 0 6px 6px 0;
+  font-size: 0.9rem;
+}
+
 .how { margin-top: 24px; text-align: left; max-width: 52ch; margin-inline: auto; }
 .how summary { cursor: pointer; color: var(--accent); font-size: 0.9rem; }
 .how ol { color: var(--text-dim); font-size: 0.9rem; padding-left: 20px; }

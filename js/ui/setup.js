@@ -182,3 +182,113 @@ export function renderSolarDetected(intervals) {
     el.innerHTML = "";
   }
 }
+
+// --- bill import -----------------------------------------------------------
+
+/**
+ * Apply the fields a bill PDF yielded to the Step-2 controls, then re-cost.
+ *
+ * Auto-apply, but never silently: every value is set on a control the user can
+ * still see and change, and a summary says exactly what came from the bill and
+ * what the bill could not tell us. A value that does not match the loaded rate
+ * data (an unknown city, a NEM 3.0 option that isn't offered) is skipped rather
+ * than forced — a wrong auto-fill is worse than a blank the user expects to fill.
+ *
+ * Order mirrors the change-handler chain in main.js: city first (it rebuilds the
+ * provider list), then provider and vintage, then the NEM mode, then the rest,
+ * then a single recompute.
+ */
+export function applyBillFields(fields, warnings, recompute) {
+  const applied = [];
+  const missed = [];
+  // The tier the bill can't tell us — surfaced prominently rather than buried in
+  // the muted list, because it is the one thing on the form the import cannot
+  // get right on its own.
+  let tierHighlight = null;
+
+  // City — only if it is a city the rate data knows. Rebuilds the provider list.
+  if (fields.city && state.cities?.cities.some((c) => c.name === fields.city)) {
+    $("city").value = fields.city;
+    buildProviderSelect();
+    renderCityNote();
+    applied.push(`City: ${fields.city}`);
+  } else if (fields.city) {
+    missed.push(`We read a city ("${fields.city}") that isn't in the list — set it yourself.`);
+  }
+
+  // Generation provider — the bill names the CCA and (for SDCP) the vintage, but
+  // NOT which product tier. So default to each CCA's standard product — SDCP
+  // PowerOn, CEA Clean Impact Plus — and highlight that it is an assumption, to
+  // be changed only by someone who knows they picked a different tier.
+  if (fields.ccaProvider) {
+    const group = fields.pciaVintage ? `${fields.pciaVintage}v` : null;
+    const fits = overlaysForCity().filter(
+      (o) => o.doc.provider === fields.ccaProvider && (!o.doc.rate_group || o.doc.rate_group === group),
+    );
+    // Prefer the CCA's default product; fall back to the first that fits.
+    const match = fits.find((o) => o.doc.product === DEFAULT_PRODUCT[fields.ccaProvider]) ?? fits[0];
+    if (match) {
+      $("provider").value = match.file;
+      syncVintageToProvider();
+      if (fields.pciaVintage) $("vintage").value = String(fields.pciaVintage);
+      const product = match.doc.product;
+      applied.push(`Generation: ${fields.ccaProvider.toUpperCase()} ${product}${fields.pciaVintage ? ` (${fields.pciaVintage} vintage)` : ""}`);
+      tierHighlight =
+        `Your bill doesn't say which ${fields.ccaProvider.toUpperCase()} plan you're on, so we assumed ` +
+        `<strong>${esc(product)}</strong> — the standard tier. If you switched to a different one, ` +
+        `change it under <strong>Generation provider</strong> below.`;
+    } else {
+      missed.push(`Your bill shows ${fields.ccaProvider.toUpperCase()} generation, but not for the default city — set your city, then the provider.`);
+    }
+  }
+
+  // Solar / NEM mode. The nem3 option is removed when no export-price file is
+  // loaded, so only set a value the select actually offers.
+  if (fields.nemMode && [...$("nem").options].some((o) => o.value === fields.nemMode)) {
+    $("nem").value = fields.nemMode;
+    syncNemControls();
+    applied.push(`Solar: ${fields.nemMode === "nem2" ? "NEM 2.0" : "NEM 3.0"}`);
+  }
+
+  // Climate zone.
+  if (fields.climateZone && state.utility?.baseline?.climate_zones?.[fields.climateZone]) {
+    $("zone").value = fields.climateZone;
+    applied.push(`Climate zone: ${fields.climateZone[0].toUpperCase() + fields.climateZone.slice(1)}`);
+  }
+
+  // True-up date — only meaningful for NEM 2.0, but harmless to set regardless.
+  if (fields.trueUpDate) {
+    $("trueup-date").value = fields.trueUpDate;
+    applied.push(`True-up date: ${fields.trueUpDate}`);
+  }
+
+  recompute();
+  renderBillSummary(applied, missed, warnings, tierHighlight);
+}
+
+// Each CCA's standard product — used when a bill names the provider but not the
+// tier (a NEM bill never prints the tier). Chosen deliberately, not "first in
+// the list", so the default is the one most customers are actually on.
+const DEFAULT_PRODUCT = { sdcp: "PowerOn", cea: "Clean Impact Plus" };
+
+function renderBillSummary(applied, missed, warnings = [], tierHighlight = null) {
+  const el = $("bill-detected");
+  if (!el) return;
+  if (!applied.length && !missed.length) {
+    el.innerHTML = notice("warn", "Couldn't read anything usable from that bill",
+      "It may be a scan or photo with no text layer, or a format we don't recognize. " +
+      "Fill in your situation by hand below.");
+    return;
+  }
+  const list = applied.length
+    ? `<strong>From your bill:</strong> ${applied.map(esc).join(" · ")}. Everything below stays editable.`
+    : "We couldn't read the usual fields from this bill.";
+  // The tier assumption is not escaped here because it is built in this module
+  // from a fixed product name, not from bill text — the product string is
+  // already run through esc() where the highlight is composed.
+  const highlight = tierHighlight
+    ? `<p class="bill-highlight">${tierHighlight}</p>`
+    : "";
+  const notes = [...warnings, ...missed].map((m) => `<br><span class="bill-miss">${esc(m)}</span>`).join("");
+  el.innerHTML = notice("good", "Filled in from your bill", list + highlight + notes);
+}

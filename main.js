@@ -14,8 +14,9 @@ import { state } from "./js/ui/state.js";
 import {
   buildZoneSelect, buildCitySelect, buildProviderSelect, buildVintageSelect,
   buildNbtVintageSelect, syncVintageToProvider, syncNemControls, nemMode,
-  currentOverlay, renderSolarDetected,
+  currentOverlay, renderSolarDetected, applyBillFields,
 } from "./js/ui/setup.js";
+import { parseBill } from "./js/bill.js";
 import { activeIntervals, costOptions } from "./js/ui/compute.js";
 import {
   renderTrimNote, renderTrueUp, renderCoverage, meterEligiblePlans, byCost,
@@ -72,6 +73,9 @@ async function init() {
   $("pick").addEventListener("click", () => $("file").click());
   $("file").addEventListener("change", (e) => e.target.files[0] && readFile(e.target.files[0]));
   setupDropzone();
+
+  $("bill-pick")?.addEventListener("click", () => $("bill-file").click());
+  $("bill-file")?.addEventListener("change", (e) => e.target.files[0] && readBill(e.target.files[0]));
 
   for (const id of ["period", "trim", "zone", "baseline-type", "nbt-vintage", "separate-ev-meter"]) {
     $(id).addEventListener("change", recompute);
@@ -191,6 +195,31 @@ function readFile(file) {
     }
   };
   reader.readAsText(file);
+}
+
+/**
+ * Read a bill PDF and pre-fill Step 2 from it.
+ *
+ * Independent of the usage-data flow: a bill fills the form, it does not provide
+ * intervals, so it never touches state.raw or the ranking. pdf.js is loaded
+ * lazily inside parseBill, so this is the only path that ever pays for it.
+ */
+function readBill(file) {
+  const reader = new FileReader();
+  reader.onload = async () => {
+    $("bill-detected").innerHTML = notice("info", "Reading your bill…", "This runs in your browser; nothing is uploaded.");
+    try {
+      const { fields, warnings } = await parseBill(reader.result);
+      applyBillFields(fields, warnings, recompute);
+    } catch (e) {
+      $("bill-detected").innerHTML = notice("warn", "Couldn't read that bill",
+        `${esc(e.message)} Fill in your situation by hand below.`);
+    } finally {
+      // Let the same file be chosen again after a correction.
+      $("bill-file").value = "";
+    }
+  };
+  reader.readAsArrayBuffer(file);
 }
 
 /**

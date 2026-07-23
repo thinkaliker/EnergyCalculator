@@ -112,6 +112,25 @@ async function openAllSteps(win, doc) {
 }
 
 /**
+ * Call applyBillFields inside the page with a fixture, the way the PDF path
+ * would after parsing. The function is a module export, so a module script is
+ * injected into the iframe to import and run it; recompute is a no-op here since
+ * the assertions read the Step-2 controls, not the ranking.
+ */
+async function applyBill(win, doc, fields) {
+  win.__billDone = false;
+  const s = doc.createElement("script");
+  s.type = "module";
+  s.textContent =
+    `import { applyBillFields } from "./js/ui/setup.js";` +
+    `applyBillFields(${JSON.stringify(fields)}, [], () => {});` +
+    `window.__billDone = true;`;
+  doc.body.appendChild(s);
+  await waitFor(() => win.__billDone === true);
+  await settle(80);
+}
+
+/**
  * Ranking rows sharing the cheapest total. For a net exporter that is a group,
  * not a row: generation credits cancel everything they are allowed to cancel and
  * several plans land on the same non-bypassable Base Services Charge.
@@ -780,6 +799,36 @@ async function run() {
   check("the rate-revision panel stays hidden for a period inside one revision",
     doc.getElementById("rate-revisions").classList.contains("hidden"),
     doc.getElementById("rate-revisions").className);
+
+  // --- bill import: applying parsed fields to Step 2 -----------------------
+  // parseBill (pdf.js) can't be fed a committed PDF, so this drives the apply
+  // half directly: inject a module script that calls applyBillFields with a
+  // fixture the way the PDF path would, then assert the controls took the values
+  // and the summary rendered. Runs last — it mutates the Step-2 selects.
+  await applyBill(win, doc, {
+    climateZone: "inland", nemMode: "nem2", trueUpDate: "2026-02-19",
+    ccaProvider: "sdcp", pciaVintage: 2021, city: "San Diego",
+  });
+  check("bill import sets the climate zone", doc.getElementById("zone").value, "inland");
+  check("bill import sets the NEM mode", doc.getElementById("nem").value, "nem2");
+  check("bill import sets the true-up date", doc.getElementById("trueup-date").value, "2026-02-19");
+  check("bill import defaults the SDCP tier to PowerOn, not just the first match",
+    /sdcp-2021v-poweron/.test(doc.getElementById("provider").value), doc.getElementById("provider").value);
+  check("bill import sets the PCIA vintage", doc.getElementById("vintage").value, "2021");
+  check("bill import shows a summary of what it filled",
+    /from your bill/i.test(doc.getElementById("bill-detected").textContent),
+    doc.getElementById("bill-detected").textContent.slice(0, 80));
+  // The unset product tier is called out prominently, naming the assumed default.
+  check("bill import highlights the assumed provider tier",
+    !!doc.querySelector("#bill-detected .bill-highlight") &&
+      /PowerOn/.test(doc.querySelector("#bill-detected .bill-highlight").textContent),
+    doc.querySelector("#bill-detected .bill-highlight")?.textContent.slice(0, 90) ?? "no highlight");
+  // A field the bill couldn't determine (unknown city) must be skipped, not forced.
+  await applyBill(win, doc, { climateZone: "desert", city: "Atlantis" });
+  check("bill import skips a city the rate data doesn't know",
+    doc.getElementById("city").value !== "Atlantis", doc.getElementById("city").value);
+  check("bill import still applies the fields it did recognize",
+    doc.getElementById("zone").value, "desert");
 
   check("no uncaught errors during the run", errors.length === 0, errors.join(" | "));
 

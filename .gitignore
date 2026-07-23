@@ -1,9 +1,13 @@
 .DS_Store
 
 # Green Button exports and bills carry name, address, account and meter numbers.
-# Never commit them; tools/verify.mjs takes the path as an argument instead.
+# Never commit them; verify.mjs and the bill importer take a path as an argument.
+# Bill filenames vary ("chris-Feb 2026.pdf", "SDGE_...bill.pdf"), so ignore every
+# PDF rather than a "bill" pattern that misses most of them. The repo commits no
+# PDFs; the vendored pdf.js library is .mjs, not .pdf.
 *Electric_*.csv
-*bill*.pdf
+*Electric_*.xml
+*.pdf
 
 # Written by the Pages workflow at deploy time, so the footer can name the
 # commit it was built from. Committing it would guarantee it is stale.

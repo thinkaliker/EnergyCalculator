@@ -72,6 +72,16 @@
   <!-- Step 2 ------------------------------------------------------------ -->
   <section class="step hidden" id="step-setup">
     <h2><span class="num">2</span> Your situation</h2>
+
+    <!-- Optional accelerator: a bill states most of these fields outright. It is
+         read in the browser like everything else — nothing is uploaded. -->
+    <div class="bill-import" id="bill-import">
+      <input type="file" id="bill-file" accept="application/pdf,.pdf" hidden>
+      <button class="btn" id="bill-pick">Fill this in from a bill</button>
+      <span class="hint">Have a recent SDG&amp;E bill PDF? Read it here to set the fields below. It never leaves your browser.</span>
+    </div>
+    <div id="bill-detected"></div>
+
     <div id="solar-detected"></div>
     <div class="controls grid">
       <label>
