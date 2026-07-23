@@ -160,6 +160,7 @@ check("bill: converts the true-up date to ISO", sdcp.fields.trueUpDate, "2026-02
 check("bill: identifies SDCP as the provider", sdcp.fields.ccaProvider, "sdcp");
 check("bill: reads the PCIA vintage", sdcp.fields.pciaVintage, 2021);
 check("bill: reads the city from the franchise line", sdcp.fields.city, "San Diego");
+check("bill: a solar SDCP bill omits the tier, so ccaProduct stays null", sdcp.fields.ccaProduct, null);
 check("bill: a clean SDCP bill raises no warning", sdcp.warnings.length, 0);
 
 // CEA: coastal, no vintage token, no "City of X ... Differential" line. The
@@ -167,6 +168,7 @@ check("bill: a clean SDCP bill raises no warning", sdcp.warnings.length, 0);
 const ceaBill = [
   "Rate: Time of Use - TOU-DR1-Residential   Climate Zone: Coastal",
   "Your electric energy is provided by CLEAN ENERGY ALLIANCE .",
+  "Clean Impact Plus 0 kWh X $0.001",
   "Your CCA rate is NEM TOU-DR-1.",
   "Net Energy Metering Summary   True-Up Date: 6/5/2026   Version: 2.0",
   "Franchise Fee Equivalent Surcharge   200 x 1.10%",
@@ -174,9 +176,27 @@ const ceaBill = [
 const ceaFields = extractBillFields(ceaBill);
 check("bill: CEA coastal zone", ceaFields.fields.climateZone, "coastal");
 check("bill: CEA provider", ceaFields.fields.ccaProvider, "cea");
+check("bill: reads the CEA product tier the bill states", ceaFields.fields.ccaProduct, "Clean Impact Plus");
 check("bill: a single-digit true-up month still pads to ISO", ceaFields.fields.trueUpDate, "2026-06-05");
 check("bill: no vintage on a CEA bill stays null", ceaFields.fields.pciaVintage, null);
 check("bill: no franchise-differential line leaves city null", ceaFields.fields.city, null);
+
+// "Clean Impact Plus" contains "Clean Impact" — the longer name must win, and a
+// bill that says only the bare product must read as the bare product.
+check("bill: the bare Clean Impact tier is not mis-read as the Plus tier",
+  extractBillFields("provided by CLEAN ENERGY ALLIANCE\nClean Impact 100 kWh X $0.02").fields.ccaProduct,
+  "Clean Impact");
+
+// A non-solar SDCP bill DOES name the tier, on its "Your CCA rate is …" line
+// ("… - 2021 Vintage - PowerBase."). Read it — only the solar SDCP bill above
+// omits it.
+const sdcpNonSolar = extractBillFields([
+  "Rate: EV-TOU-5-Residential   Climate Zone: Coastal",
+  "Your electric energy is provided by SAN DIEGO COMMUNITY POWER .",
+  "Your CCA rate is EV-TOU-5 - 2021 Vintage - PowerBase.",
+].join("\n"));
+check("bill: a non-solar SDCP bill's stated tier is read", sdcpNonSolar.fields.ccaProduct, "PowerBase");
+check("bill: and its vintage still reads alongside the tier", sdcpNonSolar.fields.pciaVintage, 2021);
 
 // The exact "City of San Diego Franchise Fee Differential" phrase also appears
 // in every bill's glossary as a definition, with no charge amount. That must not
@@ -189,6 +209,52 @@ const glossaryOnly = extractBillFields(
 );
 check("bill: the glossary definition of the SD franchise fee is not a city match",
   glossaryOnly.fields.city, null);
+
+// The address block is the broad city signal: the mailing and service addresses
+// both print "<street> <CITY>, CA #####", so a CEA-territory bill with no
+// franchise-differential line still yields its city — the case the franchise
+// line alone could never reach.
+const escondidoBill = [
+  "Rate: Time of Use - TOU-DR1-Residential   Climate Zone: Inland",
+  "1234 GRAND AVE",
+  "ESCONDIDO, CA 92025-1234",
+  "Your electric energy is provided by CLEAN ENERGY ALLIANCE .",
+  "789 W MISSION AVE ESCONDIDO, CA 92025",
+].join("\n");
+check("bill: reads a CEA city from the address block, no franchise line",
+  extractBillFields(escondidoBill).fields.city, "Escondido");
+
+// A listed city name embedded in a street ("El Cajon Blvd" in San Diego) must
+// not beat the real city at the tail of the line.
+check("bill: the city is the tail of the address, not a street name inside it",
+  extractBillFields("123 EL CAJON BLVD SAN DIEGO, CA 92115\nClimate Zone: Coastal").fields.city,
+  "San Diego");
+
+// The utility's own remittance / PO-box lines also match "X, CA #####", but
+// their city is not one SDG&E serves, so validation discards them and the
+// customer's city still wins.
+const remitBill = [
+  "P.O. BOX 25111",
+  "SANTA ANA, CA 92799-5111",
+  "456 A ST CARLSBAD, CA 92008",
+  "Climate Zone: Coastal",
+].join("\n");
+check("bill: a utility PO-box city that SDG&E doesn't serve is ignored",
+  extractBillFields(remitBill).fields.city, "Carlsbad");
+
+// Two different KNOWN cities in address position: decide (most frequent, or the
+// franchise city) and warn, rather than skip or pick at random.
+const twoCityBill = [
+  "789 GRAND AVE ESCONDIDO, CA 92025",
+  "500 SERVICE RD ESCONDIDO, CA 92025",
+  "SAN DIEGO, CA 92123",
+  "Climate Zone: Inland",
+].join("\n");
+const twoCity = extractBillFields(twoCityBill);
+check("bill: an ambiguous address block picks the most frequent city",
+  twoCity.fields.city, "Escondido");
+check("bill: and the city ambiguity is warned",
+  twoCity.warnings.some((w) => /more than one city/i.test(w)), true);
 
 // NEM 3.0 is detected but flagged, since the pattern is unverified against a
 // real Solar Billing Plan bill.

@@ -830,6 +830,23 @@ async function run() {
   check("bill import still applies the fields it did recognize",
     doc.getElementById("zone").value, "desert");
 
+  // A stated product tier — a CEA bill, or a non-solar SDCP bill — is honored
+  // exactly and, unlike the assumed-default case above, raises NO highlight,
+  // because it was read from the bill rather than guessed.
+  await applyBill(win, doc, { ccaProvider: "cea", ccaProduct: "Clean Impact Plus", city: "Escondido" });
+  check("bill import selects the exact CEA product the bill named",
+    /cea-clean-impact-plus/.test(doc.getElementById("provider").value), doc.getElementById("provider").value);
+  check("bill import does not highlight a CEA tier the bill stated",
+    doc.querySelector("#bill-detected .bill-highlight") === null,
+    doc.querySelector("#bill-detected .bill-highlight")?.textContent.slice(0, 90) ?? "");
+
+  await applyBill(win, doc, { ccaProvider: "sdcp", pciaVintage: 2021, ccaProduct: "PowerBase", city: "San Diego" });
+  check("bill import honors a non-solar SDCP bill's stated PowerBase tier",
+    /sdcp-2021v-powerbase/.test(doc.getElementById("provider").value), doc.getElementById("provider").value);
+  check("bill import does not highlight a stated SDCP tier",
+    doc.querySelector("#bill-detected .bill-highlight") === null,
+    doc.querySelector("#bill-detected .bill-highlight")?.textContent.slice(0, 90) ?? "");
+
   check("no uncaught errors during the run", errors.length === 0, errors.join(" | "));
 
   document.getElementById("out").innerHTML =

@@ -216,27 +216,34 @@ export function applyBillFields(fields, warnings, recompute) {
     missed.push(`We read a city ("${fields.city}") that isn't in the list — set it yourself.`);
   }
 
-  // Generation provider — the bill names the CCA and (for SDCP) the vintage, but
-  // NOT which product tier. So default to each CCA's standard product — SDCP
-  // PowerOn, CEA Clean Impact Plus — and highlight that it is an assumption, to
-  // be changed only by someone who knows they picked a different tier.
+  // Generation provider. The bill always names the CCA and (for SDCP) the
+  // vintage. It usually names the product tier too — a CEA bill does, and so does
+  // a non-solar SDCP bill — but a solar SDCP bill omits it. So honor a stated
+  // product exactly, and only when none was stated fall back to the CCA's
+  // standard tier — highlighting that as an assumption, to be changed only by
+  // someone who knows they picked another tier.
   if (fields.ccaProvider) {
     const group = fields.pciaVintage ? `${fields.pciaVintage}v` : null;
     const fits = overlaysForCity().filter(
       (o) => o.doc.provider === fields.ccaProvider && (!o.doc.rate_group || o.doc.rate_group === group),
     );
-    // Prefer the CCA's default product; fall back to the first that fits.
-    const match = fits.find((o) => o.doc.product === DEFAULT_PRODUCT[fields.ccaProvider]) ?? fits[0];
+    // The product the bill stated, if any and if we model it; else the default.
+    const stated = fields.ccaProduct ? fits.find((o) => o.doc.product === fields.ccaProduct) : null;
+    const match = stated ?? fits.find((o) => o.doc.product === DEFAULT_PRODUCT[fields.ccaProvider]) ?? fits[0];
     if (match) {
       $("provider").value = match.file;
       syncVintageToProvider();
       if (fields.pciaVintage) $("vintage").value = String(fields.pciaVintage);
       const product = match.doc.product;
       applied.push(`Generation: ${fields.ccaProvider.toUpperCase()} ${product}${fields.pciaVintage ? ` (${fields.pciaVintage} vintage)` : ""}`);
-      tierHighlight =
-        `Your bill doesn't say which ${fields.ccaProvider.toUpperCase()} plan you're on, so we assumed ` +
-        `<strong>${esc(product)}</strong> — the standard tier. If you switched to a different one, ` +
-        `change it under <strong>Generation provider</strong> below.`;
+      // Flag an assumption only when the bill did not state the product. A stated
+      // product (CEA) is read from the bill, not guessed, so it needs no warning.
+      if (!stated) {
+        tierHighlight =
+          `Your bill doesn't say which ${fields.ccaProvider.toUpperCase()} plan you're on, so we assumed ` +
+          `<strong>${esc(product)}</strong> — the standard tier. If you switched to a different one, ` +
+          `change it under <strong>Generation provider</strong> below.`;
+      }
     } else {
       missed.push(`Your bill shows ${fields.ccaProvider.toUpperCase()} generation, but not for the default city — set your city, then the provider.`);
     }
