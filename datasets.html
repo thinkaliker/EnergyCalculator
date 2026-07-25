@@ -110,17 +110,20 @@ async function boot() {
       getJSON(PROF + "index.json").catch(() => ({ profiles: [] })),
     ]);
     const util = ri.files.filter((f) => f.type === "utility");
+    const gas = ri.files.filter((f) => f.type === "utility_gas");
     const gen = ri.files.filter((f) => f.type === "generation");
-    const other = ri.files.filter((f) => f.type !== "utility" && f.type !== "generation");
+    const skip = new Set(["utility", "utility_gas", "generation"]);
+    const other = ri.files.filter((f) => !skip.has(f.type));
 
     items.push({ key: "overview", label: "Overview", group: "Overview", kind: "overview" });
     util.forEach((f) => items.push({ key: f.path, label: "sdge (current)", tag: f.effective_date, group: "Utility — current", kind: "utility", base: RATES, path: f.path }));
     (hi.files || []).forEach((f) => items.push({ key: "h:" + f.path, label: f.effective_date, tag: "history", group: "Utility — history", kind: "utility", base: HIST, path: f.path }));
+    gas.forEach((f) => items.push({ key: f.path, label: `${f.provider} gas`, tag: f.effective_date, group: "Gas", kind: "utility_gas", base: RATES, path: f.path }));
     gen.forEach((f) => items.push({ key: f.path, label: f.product || f.provider, tag: f.provider, group: "CCA overlays", kind: "generation", base: RATES, path: f.path }));
     other.forEach((f) => items.push({ key: f.path, label: f.path.replace(".json", ""), tag: f.type, group: "Other", kind: f.type, base: RATES, path: f.path }));
     (pi.profiles || []).forEach((p) => items.push({ key: "p:" + p.path, label: p.name || p.id, tag: p.kind || "load", group: "Profiles", kind: "profile", base: PROF, path: p.path }));
 
-    $("summary").textContent = `${util.length} current · ${(hi.files || []).length} archived · ${gen.length} CCA · ${(pi.profiles || []).length} profiles`;
+    $("summary").textContent = `${util.length} current · ${(hi.files || []).length} archived · ${gas.length} gas · ${gen.length} CCA · ${(pi.profiles || []).length} profiles`;
     renderNav();
     show("overview");
   } catch (e) {
@@ -148,6 +151,7 @@ function show(key) {
   getJSON(item.base + item.path)
     .then((doc) => {
       if (item.kind === "utility") renderUtility(item, doc);
+      else if (item.kind === "utility_gas") renderGasUtility(item, doc);
       else if (item.kind === "generation") renderOverlay(item, doc);
       else if (item.kind === "cities") renderCities(item, doc);
       else if (item.kind === "export_prices") renderExport(item, doc);
@@ -225,6 +229,51 @@ function renderUtility(item, d) {
     ${kvTable(fx)}
     <h3>Plans (${(d.plans || []).length})</h3>
     ${(d.plans || []).map((p) => planBlock(p)).join("")}
+  `;
+}
+
+// --- Gas utility file (Schedule GR) ----------------------------------------
+// Its own shape: no plans, no TOU. Two flat per-therm rates against a seasonal
+// baseline allowance, floored at a minimum bill. Rendered to match that rather
+// than forced through the electric plan layout.
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function renderGasUtility(item, d) {
+  const mb = d.minimum_bill || {};
+  const rt = d.rates_per_therm || {};
+  const periods = Object.entries(d.baseline_periods || {}).filter(([k]) => !k.startsWith("_"));
+  const spread = rt.baseline != null && rt.non_baseline != null
+    ? `+${fmt(rt.non_baseline - rt.baseline)}/therm above baseline` : "";
+  $("main").innerHTML = `
+    <h2>${esc(d.provider)} gas · ${esc(d.effective_date)} <span class="badge">Schedule GR</span></h2>
+    <div class="path">${esc(item.base + item.path)}</div>
+    <div class="notice">Draft — the procurement half of the rate resets monthly, so treat the per-therm figures as a snapshot and review against the live schedule before relying on them.</div>
+    <div class="keyfig">
+      <div><span class="muted">Baseline</span><b>${rt.baseline != null ? fmt(rt.baseline) : "—"}<span class="muted" style="font-size:12px">/therm</span></b></div>
+      <div><span class="muted">Above baseline</span><b>${rt.non_baseline != null ? fmt(rt.non_baseline) : "—"}<span class="muted" style="font-size:12px">/therm</span></b></div>
+      <div><span class="muted">Minimum bill</span><b>${mb.per_day != null ? "$" + mb.per_day : "—"}<span class="muted" style="font-size:12px">/day</span></b></div>
+      <div><span class="muted">Baseline periods</span><b>${periods.length}</b></div>
+    </div>
+    ${d.verified_against ? `<p class="muted">Verified against: ${esc(d.verified_against)}</p>` : ""}
+    ${d.source_url ? `<p><a class="src" href="${esc(d.source_url)}" target="_blank" rel="noopener">${esc(d.source_url)}</a></p>` : ""}
+    ${notesBlock(d.notes)}
+    <h3>Per-therm rates ${spread ? `<span class="muted" style="font-weight:400">— ${esc(spread)}</span>` : ""}</h3>
+    <table>
+      <tr><th>Tier</th><th class="num">$/therm</th></tr>
+      <tr><td>Baseline <span class="muted">— within the allowance</span></td><td class="num">${rt.baseline != null ? fmt(rt.baseline) : "—"}</td></tr>
+      <tr><td>Non-baseline <span class="muted">— above the allowance</span></td><td class="num">${rt.non_baseline != null ? fmt(rt.non_baseline) : "—"}</td></tr>
+    </table>
+    <h3>Baseline allowance by season</h3>
+    <p class="muted">Territory-wide — SDG&amp;E gas has no climate zones. Only the allowance changes with season; the rates above do not.</p>
+    <table>
+      <tr><th>Period</th><th>Months</th><th class="num">therms/day</th></tr>
+      ${periods.map(([name, p]) => `<tr>
+        <td>${esc(name.replace(/_/g, " "))}</td>
+        <td class="muted" style="white-space:normal">${(p.months || []).map((m) => MONTHS[m - 1] || m).join(", ")}</td>
+        <td class="num">${p.allowance_therms_per_day ?? "—"}</td>
+      </tr>`).join("")}
+    </table>
+    <h3>Minimum bill</h3>
+    ${kvTable(mb)}
   `;
 }
 
