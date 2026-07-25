@@ -30,8 +30,10 @@ PDF and webpage are separate paths. Don't share logic between them.
 ```bash
 node .claude/skills/rate-extractor/scripts/fetch-tariff.mjs list
 node .claude/skills/rate-extractor/scripts/fetch-tariff.mjs get 898 /tmp/tou-dr1.pdf
-pdftotext -layout /tmp/tou-dr1.pdf -
+node .claude/skills/rate-extractor/scripts/pdf-rates.mjs /tmp/tou-dr1.pdf
 ```
+
+`pdf-rates.mjs` writes the full page text to `/tmp/tou-dr1.txt` and prints only the rate-bearing lines, each tagged with its page — a schedule's rate table without the sheets of boilerplate around it. When a printed number needs its neighbours to place (a season legend a page over, a footnoted adjustment), `Grep` or `Read` that saved `.txt` rather than dumping the whole PDF again.
 
 `list [rateGroup] [section]` — rate groups are `"Residential Rates"` (default), `"Miscellaneous"`, `"Commercial/Industrial Rates"`, `"Lighting Rates"`, `"Commodity Rates"`. Sections are `scheds` (default), `rules`, `prelim`, `toc`, `forms`, `cd`, `gas` — pass `-` for the rate group when listing a non-schedule section.
 

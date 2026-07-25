@@ -1,0 +1,37 @@
+{
+  "provider": "sdge",
+  "type": "utility_gas",
+  "effective_date": "2026-07-10",
+  "source_url": "https://tariffsprd.sdge.com/sdge/tariffs/?utilId=SDGE&bookId=GAS&sectId=GAS-SCHEDS",
+  "verified_against": "SDG&E Schedule GR (Domestic Natural Gas Service), 'GR' column. Sheet 1 rates: Cal. P.U.C. Sheet 63647-G, Advice Ltr. 3533-G, effective Jul 10 2026. Sheet 2 baseline allowances: Cal. P.U.C. Sheet 26187-G, Advice Ltr. 3127-G, effective Nov 1 2022.",
+
+  "notes": {
+    "shape": "SDG&E residential gas is far simpler than electric: one schedule (GR), no TOU, no NEM, no CCA generation choice. So no plans array, no hour blocks, no non-bypassable charges. A bill is (therms in baseline tier x baseline rate) + (therms above baseline x non-baseline rate), floored at the minimum bill.",
+    "no_climate_zones": "Unlike the electric baseline, Schedule GR's allowance is territory-wide — a single set of therms/day figures, NOT split by climate zone. The calculator's climate-zone selector does not apply to gas. Sheet 2 lists one allowance per seasonal period with no zone dimension.",
+    "three_seasonal_periods": "The allowance has THREE periods, not two: Summer (May-Oct), Winter On-Peak (Dec/Jan/Feb), Winter Off-Peak (Nov/Mar/Apr). This is a gas-specific split; do not reuse the electric file's summer/winter boundaries.",
+    "flat_rates": "The baseline and non-baseline per-therm rates do NOT vary by month. The GR baseline rate is Procurement 0.32485 + Transmission 1.97369 = 2.29854; non-baseline is Procurement 0.32485 + Transmission 2.34201 = 2.66686. The tiering lives entirely in the transmission charge. Only the allowance changes with season, which changes how many therms land in each tier.",
+    "procurement_varies_monthly": "The Procurement Charge (0.32485) bundles the GPC/GPC-A charges from Schedule GPC and is reset monthly (Schedule GR Sheet 1 note 2, Special Condition 7). This file carries the snapshot in force on the effective date; a bill from another month uses a slightly different procurement component.",
+    "columns_not_used": "Sheet 1 also prints GR-C (a cross-over procurement option for customers over 50,000 therms/yr) and GTC/GTCA (transportation-only, no procurement). Neither is the standard individually-metered residential rate; only the GR column is used here.",
+    "unmodeled": "A real GR bill also carries small per-therm surcharges from separate schedules — G-PUC (PUC reimbursement fee), G-PPPS (public purpose program surcharge), and a franchise fee — plus the semi-annual California Climate Credit. These are not in the Schedule GR rate table and are not modeled. They are a few cents per therm; for a fuel-switching comparison the ~2.30-2.67/therm transportation+procurement rate dominates.",
+    "care": "CARE customers receive a 20% discount as a separate line item (Schedule G-CARE). Not modeled; the minimum-bill CARE figure is recorded for reference only."
+  },
+
+  "minimum_bill": {
+    "_source": "Schedule GR Sheet 1, note 3. Minimum bill = per_day x days in billing cycle (~$4/month non-CARE, ~$3.20/month CARE). Effective May 1 2020.",
+    "per_day": 0.13151,
+    "per_day_care": 0.10521
+  },
+
+  "baseline_periods": {
+    "_source": "Schedule GR Sheet 2, Special Condition 3 (Baseline Usage), therms per day. Territory-wide, no climate zone.",
+    "summer": { "months": [5, 6, 7, 8, 9, 10], "allowance_therms_per_day": 0.359 },
+    "winter_on_peak": { "months": [12, 1, 2], "allowance_therms_per_day": 1.233 },
+    "winter_off_peak": { "months": [11, 3, 4], "allowance_therms_per_day": 0.692 }
+  },
+
+  "rates_per_therm": {
+    "_source": "Schedule GR Sheet 1, 'GR' column. Total Baseline Charge and Total Non-Baseline Charge (Procurement + Transmission).",
+    "baseline": 2.29854,
+    "non_baseline": 2.66686
+  }
+}

@@ -12,3 +12,5 @@
 # Written by the Pages workflow at deploy time, so the footer can name the
 # commit it was built from. Committing it would guarantee it is stale.
 build-info.json
+
+testdata

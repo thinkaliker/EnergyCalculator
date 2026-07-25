@@ -102,7 +102,7 @@ async function importCsv(win, doc, text, { open = true } = {}) {
  * rather than being papered over.
  */
 async function openAllSteps(win, doc) {
-  for (const id of ["step-setup", "step-results", "step-load"]) {
+  for (const id of ["step-setup", "step-results", "step-gas", "step-load"]) {
     const btn = doc.querySelector(`[data-next="${id}"]`);
     if (btn && !btn.closest(".step-nav").classList.contains("hidden")) {
       btn.click();
@@ -883,6 +883,52 @@ async function run() {
       doc.getElementById("battery").value === "", doc.getElementById("battery").value);
   check("new file returns focus to step 1",
     doc.activeElement?.id === "step-import", doc.activeElement?.id ?? "none");
+
+  // --- gas & fuel switching (step 4) ---------------------------------------
+  // A plain file, walked open, so the gas step is on screen and the electric
+  // side has a selected plan to cost against.
+  await importCsv(win, doc, syntheticCsv());
+  check("gas step is present", !!doc.getElementById("step-gas"));
+  check("gas step reveals via its own next button", !hidden("step-gas"),
+    "step-gas still hidden after walking the page open");
+  check("gas current bill shows a dollar figure",
+    /\$\d/.test(doc.getElementById("gas-current-bill").textContent),
+    doc.getElementById("gas-current-bill").textContent.slice(0, 60));
+  check("gas therms default from the manifest", doc.getElementById("gas-heating-therms").value, "300");
+  for (const id of ["stove", "heating", "water-heater"]) {
+    check(`gas swap card ${id} renders a verdict`,
+      /a year/.test(doc.getElementById(`gas-swap-${id}`).textContent),
+      doc.getElementById(`gas-swap-${id}`).textContent.slice(0, 50));
+  }
+
+  // Editing a therms field re-derives that appliance's default electric kWh and
+  // re-costs its card — without touching the electric ranking.
+  const heatKwhBefore = Number(doc.getElementById("gas-heating-kwh").value);
+  const heatCardBefore = doc.getElementById("gas-swap-heating").textContent;
+  const rankingBefore = cheapestTotal(doc);
+  doc.getElementById("gas-heating-therms").value = "900";
+  doc.getElementById("gas-heating-therms").dispatchEvent(new win.Event("input"));
+  await settle(120);
+  check("raising gas therms raises the derived electric kWh",
+    Number(doc.getElementById("gas-heating-kwh").value) > heatKwhBefore,
+    `${heatKwhBefore} -> ${doc.getElementById("gas-heating-kwh").value}`);
+  check("raising gas therms re-costs the swap card",
+    doc.getElementById("gas-swap-heating").textContent !== heatCardBefore);
+  check("editing gas does not disturb the electric ranking",
+    Math.abs(cheapestTotal(doc) - rankingBefore) < 0.01, `${rankingBefore} vs ${cheapestTotal(doc)}`);
+
+  // A user's own kWh edit is authoritative — a later therms edit re-derives it,
+  // but a render does not clobber it on its own.
+  doc.getElementById("gas-stove-kwh").value = "1234";
+  doc.getElementById("gas-stove-kwh").dispatchEvent(new win.Event("input"));
+  await settle(80);
+  check("hand-edited gas kWh survives a re-render",
+    doc.getElementById("gas-stove-kwh").value, "1234");
+
+  // A new file resets the gas inputs, same as every other Step-2/4 answer.
+  await importCsv(win, doc, syntheticCsv(), { open: false });
+  check("new file resets gas therms to their default",
+    doc.getElementById("gas-heating-therms").value, "300");
 
   check("no uncaught errors during the run", errors.length === 0, errors.join(" | "));
 

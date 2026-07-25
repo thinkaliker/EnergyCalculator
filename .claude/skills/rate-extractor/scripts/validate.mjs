@@ -22,6 +22,13 @@ const PRICE_MAX = 1.5;
 // above $2/kWh on September evenings.
 const EXPORT_PRICE_MAX = 3.0;
 
+// Plausible $/therm band for a residential gas commodity charge. Same tripwire
+// role as the $/kWh band, different unit — CA residential gas runs roughly
+// $0.50-$3.50/therm across the PPP/wholesale cycle. A value far outside this is
+// almost always a $/MMBtu or ¢/therm figure pasted without converting.
+const THERM_PRICE_MIN = 0.3;
+const THERM_PRICE_MAX = 5.0;
+
 const errors = [];
 const warnings = [];
 
@@ -305,6 +312,86 @@ function validateUtility(file, doc) {
     if (plan?.id) models[plan.id] = model;
   }
   return models;
+}
+
+/**
+ * A residential gas utility file (SDG&E Schedule GR). Much smaller and simpler
+ * than the electric one, and shaped by what the schedule actually publishes:
+ *
+ *  - No TOU, no NEM, no CCA generation — nothing to rank, no hour blocks.
+ *  - No climate zones. The baseline allowance is territory-wide, split into
+ *    three *seasonal periods* (summer, winter-on-peak, winter-off-peak) that
+ *    partition the twelve months — not the two seasons the electric file uses.
+ *  - Flat rates. Only two prices exist, baseline and non-baseline per therm;
+ *    they do not vary by month. The seasons only change how many therms fall in
+ *    the baseline tier, via the allowance.
+ *  - No daily service charge, only a minimum-bill floor per day.
+ */
+function validateGasUtility(file, doc) {
+  checkProvenance(file, doc);
+
+  if (typeof doc.minimum_bill?.per_day !== "number" || doc.minimum_bill.per_day < 0) {
+    err(file, "minimum_bill.per_day: required non-negative number");
+  }
+
+  // The baseline periods must partition all twelve months exactly once, or a
+  // month prices against no allowance (a silent over-bill) or two (ambiguous).
+  const periods = doc.baseline_periods;
+  if (!periods || typeof periods !== "object" || !Object.keys(periods).length) {
+    err(file, "baseline_periods: missing or empty");
+  } else {
+    const monthCount = new Array(13).fill(0); // 1..12
+    for (const [name, p] of Object.entries(periods)) {
+      if (name.startsWith("_")) continue; // `_source` and friends are annotations
+      if (typeof p?.allowance_therms_per_day !== "number" || p.allowance_therms_per_day < 0) {
+        err(file, `baseline_periods.${name}.allowance_therms_per_day: expected a non-negative number, got ${JSON.stringify(p?.allowance_therms_per_day)}`);
+      }
+      if (!Array.isArray(p?.months) || !p.months.length) {
+        err(file, `baseline_periods.${name}.months: expected a non-empty array of month numbers`);
+        continue;
+      }
+      for (const m of p.months) {
+        if (!Number.isInteger(m) || m < 1 || m > 12) {
+          err(file, `baseline_periods.${name}.months: ${JSON.stringify(m)} is not a month 1-12`);
+        } else {
+          monthCount[m]++;
+        }
+      }
+    }
+    const missing = [];
+    const dup = [];
+    for (let m = 1; m <= 12; m++) {
+      if (monthCount[m] === 0) missing.push(m);
+      else if (monthCount[m] > 1) dup.push(m);
+    }
+    if (missing.length) err(file, `baseline_periods: month(s) ${missing.join(", ")} fall in no period`);
+    if (dup.length) err(file, `baseline_periods: month(s) ${dup.join(", ")} fall in more than one period`);
+  }
+
+  // Two flat per-therm rates. Non-baseline must not be cheaper than baseline —
+  // that would make heavy use cost less than light use, a sign the two were
+  // swapped in transcription.
+  const rates = doc.rates_per_therm;
+  if (!rates || typeof rates !== "object") {
+    err(file, "rates_per_therm: missing or not an object");
+  } else {
+    for (const k of ["baseline", "non_baseline"]) {
+      const v = rates[k];
+      if (typeof v !== "number" || Number.isNaN(v)) {
+        err(file, `rates_per_therm.${k}: required number, got ${JSON.stringify(v)}`);
+      } else if (v < 0) {
+        err(file, `rates_per_therm.${k}: negative (${v})`);
+      } else if (v < THERM_PRICE_MIN || v > THERM_PRICE_MAX) {
+        warn(file, `rates_per_therm.${k}: ${v} outside plausible $/therm band ` +
+          `(${THERM_PRICE_MIN}-${THERM_PRICE_MAX}) — check source units (¢/therm? $/MMBtu?)`);
+      }
+    }
+    if (typeof rates.baseline === "number" && typeof rates.non_baseline === "number"
+      && rates.non_baseline < rates.baseline) {
+      err(file, `rates_per_therm: non_baseline ${rates.non_baseline} is cheaper than baseline ` +
+        `${rates.baseline} — heavy use should not cost less than light use; the two look swapped`);
+    }
+  }
 }
 
 /**
@@ -641,7 +728,11 @@ const dir = process.argv[2] ?? "rates";
 
 let files;
 try {
-  files = readdirSync(dir).filter((f) => f.endsWith(".json") && f !== "index.json" && f !== "zips.json");
+  // index.json and zips.json are manifests, not rate/profile documents; so is
+  // gas-appliances.json, a swap-appliance manifest that lives in profiles/ but
+  // carries an `appliances` array rather than a single shape.
+  const SKIP = new Set(["index.json", "zips.json", "gas-appliances.json"]);
+  files = readdirSync(dir).filter((f) => f.endsWith(".json") && !SKIP.has(f));
 } catch (e) {
   console.error(`Cannot read rates directory "${dir}": ${e.message}`);
   process.exit(2);
@@ -661,7 +752,7 @@ for (const f of files) {
   }
 }
 
-const TYPES = ["utility", "generation", "export_prices", "cities"];
+const TYPES = ["utility", "utility_gas", "generation", "export_prices", "cities"];
 // Profiles live in their own directory and carry a shape rather than a `type`.
 // Recognising them by shape means `validate.mjs profiles` works without a mode
 // flag, and a profile accidentally dropped into rates/ is still checked.
@@ -669,6 +760,7 @@ const isProfile = (d) => Array.isArray(d.hourly_shape) || Array.isArray(d.monthl
 
 const profiles = [...docs].filter(([, d]) => isProfile(d));
 const utilities = [...docs].filter(([, d]) => d.type === "utility");
+const gasUtilities = [...docs].filter(([, d]) => d.type === "utility_gas");
 const generations = [...docs].filter(([, d]) => d.type === "generation");
 const exportPrices = [...docs].filter(([, d]) => d.type === "export_prices");
 const cityFiles = [...docs].filter(([, d]) => d.type === "cities");
@@ -693,6 +785,7 @@ if (generations.length && !utilities.length) {
   warn("(dir)", "generation overlays present but no utility file — plan ids unverifiable");
 }
 
+for (const [f, d] of gasUtilities) validateGasUtility(f, d);
 for (const [f, d] of generations) validateGeneration(f, d, planModels, seasonNames);
 for (const [f, d] of exportPrices) validateExportPrices(f, d);
 for (const [f, d] of cityFiles) validateCities(f, d, generations);

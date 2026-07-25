@@ -12,6 +12,8 @@ export const state = {
   exportTable: null, // NEM 3.0 export prices; absent means NEM 3.0 is unavailable
   cities: null,      // city -> CCA membership and franchise fee
   profiles: [],
+  gasUtility: null,  // parsed rates/sdge-gas.json, or null if absent
+  gasAppliances: [], // swap-appliance manifest from profiles/gas-appliances.json
   raw: [],           // every interval in the file
   selectedPlanId: null,
   historyIndex: [],  // past rate revisions available, as { provider, effective_date, path }

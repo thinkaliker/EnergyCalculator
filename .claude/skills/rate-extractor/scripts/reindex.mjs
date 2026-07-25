@@ -9,8 +9,9 @@ import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 // Also the manifest's sort order: the page loads the utility file first, then
-// generation overlays, then the NEM 3.0 export price table.
-const TYPES = ["utility", "generation", "export_prices", "cities"];
+// the gas utility file, then generation overlays, then the NEM 3.0 export price
+// table.
+const TYPES = ["utility", "utility_gas", "generation", "export_prices", "cities"];
 
 const dir = process.argv[2] ?? "rates";
 

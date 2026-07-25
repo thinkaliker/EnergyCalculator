@@ -257,13 +257,95 @@
     </div>
 
     <div class="step-nav hidden">
-      <button class="btn primary" data-next="step-load">Next: what if something changed?</button>
+      <button class="btn primary" data-next="step-gas">Next: gas &amp; fuel switching</button>
     </div>
   </section>
 
   <!-- Step 4 ------------------------------------------------------------ -->
+  <section class="step hidden" id="step-gas">
+    <h2><span class="num">4</span> Gas charges &amp; fuel switching</h2>
+    <p class="lede small">
+      The rest of this tool is about electricity. This one section is about the
+      gas meter, and only to answer one question: if you swapped a gas appliance
+      for an electric one, would the bill go up or down? Enter what you burn gas
+      on &mdash; a real bill prints your yearly therms &mdash; and adjust the
+      electric side if you have a better figure.
+    </p>
+
+    <div class="controls grid">
+      <label>
+        Gas stove / range
+        <input type="number" id="gas-stove-therms" min="0" step="1" value="15">
+        <small>Therms per year</small>
+      </label>
+      <label>
+        Gas heating
+        <input type="number" id="gas-heating-therms" min="0" step="5" value="300">
+        <small>Therms per year</small>
+      </label>
+      <label>
+        Gas water heater
+        <input type="number" id="gas-water-heater-therms" min="0" step="5" value="200">
+        <small>Therms per year</small>
+      </label>
+      <label>
+        Other gas use
+        <input type="number" id="gas-other-therms" min="0" step="5" value="50">
+        <small>Dryer, fireplace, pool&hellip; not swappable</small>
+      </label>
+    </div>
+
+    <div id="gas-current-bill"></div>
+
+    <h3>What each swap would do</h3>
+    <p class="lede small">
+      Each card removes just that appliance&rsquo;s gas &mdash; tiered against
+      the rest of your usage &mdash; and adds the electric replacement to your
+      selected plan. The electric kWh is estimated from the therms; overwrite it
+      with a real figure if you have one. Everything here is per year.
+    </p>
+
+    <div class="gas-swaps">
+      <div class="gas-swap-card">
+        <div class="gas-swap-head">
+          <span>Stove &rarr; electric range</span>
+          <label class="gas-kwh">
+            <input type="number" id="gas-stove-kwh" min="0" step="50" value="0">
+            <small>kWh/yr</small>
+          </label>
+        </div>
+        <div id="gas-swap-stove"></div>
+      </div>
+      <div class="gas-swap-card">
+        <div class="gas-swap-head">
+          <span>Heater &rarr; heat pump</span>
+          <label class="gas-kwh">
+            <input type="number" id="gas-heating-kwh" min="0" step="100" value="0">
+            <small>kWh/yr</small>
+          </label>
+        </div>
+        <div id="gas-swap-heating"></div>
+      </div>
+      <div class="gas-swap-card">
+        <div class="gas-swap-head">
+          <span>Water heater &rarr; heat-pump water heater</span>
+          <label class="gas-kwh">
+            <input type="number" id="gas-water-heater-kwh" min="0" step="100" value="0">
+            <small>kWh/yr</small>
+          </label>
+        </div>
+        <div id="gas-swap-water-heater"></div>
+      </div>
+    </div>
+
+    <div class="step-nav hidden">
+      <button class="btn primary" data-next="step-load">Next: what if something else changed?</button>
+    </div>
+  </section>
+
+  <!-- Step 5 ------------------------------------------------------------ -->
   <section class="step hidden" id="step-load">
-    <h2><span class="num">4</span> What if something changed?</h2>
+    <h2><span class="num">5</span> What if something else changed?</h2>
     <p class="lede small">
       Everything here is applied as an hourly <em>shape</em>, not a monthly
       total. Charging an EV at 1am and at 6pm cost very different amounts for
@@ -359,6 +441,10 @@
       <div class="caveat">
         <b>Some fees are inferred, not published</b>
         <p>The franchise fee bases were derived from a real bill and reproduce it to the cent, but they are not stated in any tariff. Climate credits and other one-off bill credits are not included.</p>
+      </div>
+      <div class="caveat">
+        <b>Gas swaps compare a therm figure to a plan, not a quote</b>
+        <p>The three swap cards use the therms you enter and a simple efficiency ratio to estimate the electric replacement's kWh &mdash; furnace efficiency against a heat-pump COP for heating, tank efficiency against a heat-pump water heater for hot water. The stove has no such standardized ratio, so its kWh is a plain editable default rather than a conversion. Gas figures are yearly by nature &mdash; there is no gas usage file to import &mdash; so the electric side is scaled from your imported period to a full year, unlike every other total here, which is never annualized. The gas price itself covers baseline and above-baseline tiers but leaves out small per-therm surcharges and the climate credit, and nothing models the cost, rebates, or sizing of the new equipment.</p>
       </div>
     </div>
   </section>

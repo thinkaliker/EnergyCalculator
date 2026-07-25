@@ -1,0 +1,39 @@
+{
+  "generated": "2026-07-25",
+  "_notes": "Swap-appliance manifest for the gas fuel-switching section. Not a load profile: entries carry annual THERMS and a 12-value monthly_shape (fraction of annual per calendar month, no hourly dimension — gas billing has no time-of-day component). Every monthly_shape sums to 1.0. `electric_replacement_profile` names a profile in profiles/index.json. A `conversion` block (heating, water-heater) derives the electric kWh from the entered therms; its absence (stove) means the electric side defaults to the replacement profile's own annual_kwh. All annual_therms are unverified, editable defaults.",
+  "appliances": [
+    {
+      "id": "stove",
+      "name": "Gas stove / range",
+      "annual_therms": 15,
+      "monthly_shape": [0.083333, 0.083333, 0.083333, 0.083333, 0.083333, 0.083333, 0.083333, 0.083333, 0.083333, 0.083333, 0.083333, 0.083337],
+      "electric_replacement_profile": "electric-range",
+      "notes": "Cooking is barely seasonal, so this is nearly flat across the year. No efficiency conversion — an electric range's kWh comes from the electric-range profile default, since cooking has no standardized gas-vs-electric efficiency ratio."
+    },
+    {
+      "id": "heating",
+      "name": "Gas furnace / space heating",
+      "annual_therms": 300,
+      "monthly_shape": [0.205128, 0.174359, 0.123077, 0.061538, 0.020513, 0.010256, 0.010256, 0.010256, 0.015385, 0.051282, 0.123077, 0.194872],
+      "electric_replacement_profile": "heat-pump",
+      "conversion": { "method": "efficiency_ratio", "gas_efficiency": 0.80, "electric_efficiency": 3.0, "therm_to_kwh": 29.3 },
+      "notes": "Winter-peaked, near-zero in summer. 300 therms/yr suits a mild-climate home; a colder inland or mountain household runs higher. Conversion: an 80%-efficient furnace's delivered heat met by a COP-3.0 heat pump."
+    },
+    {
+      "id": "water-heater",
+      "name": "Gas water heater",
+      "annual_therms": 200,
+      "monthly_shape": [0.095833, 0.091667, 0.0875, 0.083333, 0.079167, 0.075, 0.070833, 0.070833, 0.075, 0.083333, 0.091667, 0.095833],
+      "electric_replacement_profile": "water-heater",
+      "conversion": { "method": "efficiency_ratio", "gas_efficiency": 0.60, "electric_efficiency": 3.5, "therm_to_kwh": 29.3 },
+      "notes": "Mild winter bump from colder incoming water. Conversion: a 60%-efficient storage gas tank's delivered heat met by a COP-3.5 heat-pump water heater."
+    },
+    {
+      "id": "other",
+      "name": "Other gas use (dryer, fireplace, pool heater, etc.)",
+      "annual_therms": 50,
+      "monthly_shape": [0.083333, 0.083333, 0.083333, 0.083333, 0.083333, 0.083333, 0.083333, 0.083333, 0.083333, 0.083333, 0.083333, 0.083337],
+      "notes": "Not swappable — included only so the current gas bill reconciles with a real one. No electric_replacement_profile, no swap card."
+    }
+  ]
+}

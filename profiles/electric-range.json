@@ -1,0 +1,32 @@
+{
+  "id": "electric-range",
+  "name": "Electric range",
+  "annual_kwh": 500,
+  "hourly_shape": [
+    0.011299,
+    0.011299,
+    0.011299,
+    0.011299,
+    0.011299,
+    0.016949,
+    0.045198,
+    0.067797,
+    0.045198,
+    0.028249,
+    0.028249,
+    0.056497,
+    0.067797,
+    0.039548,
+    0.022599,
+    0.022599,
+    0.039548,
+    0.084746,
+    0.124294,
+    0.112994,
+    0.067797,
+    0.039548,
+    0.022599,
+    0.011299
+  ],
+  "notes": "Unverified default. Meal-time peaked: a breakfast bump (7am), a midday bump (11am-12pm), and the largest at dinner (5-8pm), near-zero overnight. 500 kWh/yr is a rough figure for an electric resistance range — induction runs lower, heavy cooking higher. Editable."
+}

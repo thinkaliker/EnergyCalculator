@@ -367,6 +367,9 @@ tbody tr.best td:first-child::before {
 td .plan-sub { display: block; font-size: 0.78rem; color: var(--text-dim); }
 td.total { font-weight: 650; }
 .delta { color: var(--text-dim); }
+/* A gap inside the modelling margin: muted and marked so a near-tie doesn't read
+   as a firm difference. The "≈" carries the meaning; the colour just softens it. */
+.delta-near { color: var(--text-dim); opacity: 0.75; }
 /* A credit gap is not dollars owed, so it does not get the tabular-number
    treatment the money columns have. */
 .credit-gap { font-family: inherit; font-size: 0.78rem; }
@@ -463,6 +466,37 @@ footer a { color: inherit; }
   border-radius: 3px;
   background: var(--surface);
 }
+
+/* Gas fuel-switching swap cards (step 4). */
+.gas-swaps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+.gas-swap-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 14px 16px;
+}
+.gas-swap-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.gas-swap-head > span { flex: 1; }
+label.gas-kwh {
+  flex-direction: column;
+  align-items: end;
+  gap: 2px;
+  font-weight: 400;
+}
+label.gas-kwh input { width: 88px; text-align: right; }
+.gas-swap-card .notice { margin: 0; }
 
 @media (max-width: 640px) {
   .masthead { padding: 36px 0 28px; }

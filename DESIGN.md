@@ -314,6 +314,20 @@ There is also nothing to check a composite against — no EV-TOU bill is availab
 
 So the position taken is: hide the plan unless the user asserts the meter exists, and say plainly in the page's caveats that its total is a single-meter approximation checked against no bill.
 
+## Gas charges & fuel switching
+
+A self-contained section (Step 4) that exists only to answer three questions: swap a gas stove, heater, or water heater for its electric equivalent — does the bill go up or down? It is not a gas-billing feature. There is no gas usage-file import, no plan choice, no NEM or true-up analogue.
+
+**Gas gets its own rate file type and its own calc module.** `rates/sdge-gas.json` is `type: "utility_gas"`, priced by `js/gas-cost.js`, not folded into `sdge.json`/`cost.js`. The reason is that the electric engine is entirely kWh/TOU/NEM-shaped and gas has none of that — one schedule (GR), no time-of-use, no generation choice. Threading gas through `costPlan` would mean a dozen irrelevant parameters and a `$/therm` number living behind fields named for kWh.
+
+**The gas schema follows what Schedule GR actually publishes, not the electric file's shape.** SDG&E residential gas has *no climate zones* — the baseline allowance is territory-wide, split into three seasonal periods (summer, winter-on-peak, winter-off-peak) that partition the twelve months. The prices are two flat per-therm rates, baseline and above-baseline; they do not vary by month. Only the allowance changes with season, which changes how many therms fall in each tier. A bill is `baseline therms × baseline rate + excess × non-baseline rate`, floored at a per-day minimum bill — there is no daily service charge. This shape was locked in by reading the schedule (via the token-cheap `pdf-rates.mjs` helper), not assumed from the electric file, which had guessed at zones and a season tier tree that don't exist here.
+
+**The three swaps are tier-aware on the gas side and plan-aware on the electric side.** Removing an appliance re-costs the *remaining* household therms month by month (`gasSavingsFromRemoving`), because dropping one appliance can pull a month out of the above-baseline tier or down onto the minimum-bill floor — a flat average-rate subtraction would miss that. The electric side reuses the Step 5 machinery: `applyLoadProfile` the replacement onto the imported intervals, `costPlan` before and after against the currently-selected plan. Heating and water heating derive their replacement kWh from the entered therms by an efficiency ratio (furnace/tank efficiency over a heat-pump COP); the stove has no standardized ratio, so its kWh is a plain editable default from the `electric-range` profile.
+
+**It reports in $/year, which nothing else here does.** Gas therms are annual by construction — there is no gas usage file to select a period from — so the electric side is annualized to match, with the same `365/dayCount` scaling the battery payback uses. This is the one place the calculator annualizes, and the caveat says so.
+
+The gas price omits small per-therm surcharges (G-PUC, G-PPPS, franchise fee) and the semi-annual climate credit, and the procurement component resets monthly, so the figure is deliberately an estimate for comparison rather than a bill reproduction. There is no known-answer gas bill to check it against yet — same trust category as NEM 3.0 and the ESPI parser, and flagged as such in the README.
+
 ## Rate extractor
 
 An **occasional offline LLM skill** (`.claude/skills/`), run by hand when rates change. Not part of the deployed site, not a runtime feature.

@@ -25,7 +25,7 @@ export const setOnReveal = (fn) => { onReveal = fn; };
 // list because it is never hidden, and neither is the caveats section — it
 // describes the tool rather than the household's answers, so it is readable
 // before any file is loaded.
-const GATED = ["step-setup", "step-results", "step-load"];
+const GATED = ["step-setup", "step-results", "step-gas", "step-load"];
 
 let revealed = 0;
 

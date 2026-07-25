@@ -26,6 +26,10 @@ import {
 import {
   renderAddedLoad, onProfileChange, syncBatteryControls, solarYield, resetScenario,
 } from "./js/ui/scenario-panel.js";
+import {
+  renderGasPanel, onGasThermsChange, resetGasPanel,
+  GAS_THERMS_FIELD, GAS_KWH_FIELD, GAS_SWAPPABLE,
+} from "./js/ui/gas-panel.js";
 import { looksLikeBattery } from "./js/scenario.js";
 import {
   drawPlanChart, drawShapeChart, drawMonthlyChart, drawProviderChart,
@@ -43,6 +47,9 @@ async function init() {
     .filter((o) => o.doc.type === "generation");
   state.exportTable = docs.find((d) => d.type === "export_prices") ?? null;
   state.cities = docs.find((d) => d.type === "cities") ?? null;
+  // Gas is optional: without a gas rate file the whole gas step is removed in
+  // loadGasData below, and the electric calculator is unaffected.
+  state.gasUtility = docs.find((d) => d.type === "utility_gas") ?? null;
 
   // The archive manifest only — a list, not rate data. The revisions themselves
   // are fetched once a usage file says which of them the period actually needs,
@@ -64,6 +71,7 @@ async function init() {
   renderProvenance(index);
 
   await loadProfiles();
+  await loadGasData();
 
   initStepNav();
   // Opening a step is the first moment its canvases have a real size, so the
@@ -115,6 +123,16 @@ async function init() {
     renderAddedLoad();
   });
 
+  // Gas step. Editing a therms field re-derives that appliance's default
+  // electric kWh and re-renders; editing a kWh field is authoritative and only
+  // re-renders. Both are no-ops if the gas step was removed for want of a file.
+  for (const id of Object.keys(GAS_THERMS_FIELD)) {
+    $(GAS_THERMS_FIELD[id])?.addEventListener("input", () => onGasThermsChange(id));
+  }
+  for (const id of GAS_SWAPPABLE) {
+    $(GAS_KWH_FIELD[id])?.addEventListener("input", renderGasPanel);
+  }
+
   // Deliberately not awaited, and deliberately last. The footer stamp is
   // cosmetic, and putting a network round trip ahead of the wiring above delays
   // the file input becoming usable for it — which is a real race, not a
@@ -147,8 +165,21 @@ async function loadProfiles() {
       for (const id of ["solar-kw", "solar-kwh"]) $(id).closest("label").remove();
     }
   } catch {
-    // A missing profile library disables step 4 but must not break the calculator.
+    // A missing profile library disables the load scenario but must not break
+    // the calculator.
     $("step-load").remove();
+  }
+}
+
+async function loadGasData() {
+  // The gas step needs both a gas rate file (found in init from rates/index.json)
+  // and the swap-appliance manifest. Missing either removes the step and leaves
+  // the electric calculator untouched — gas is a bolt-on, never a dependency.
+  try {
+    if (!state.gasUtility) throw new Error("no gas rate file");
+    state.gasAppliances = (await getJSON("profiles/gas-appliances.json")).appliances;
+  } catch {
+    $("step-gas")?.remove();
   }
 }
 
@@ -187,6 +218,7 @@ function readFile(file) {
       resetSteps();
       resetSetup();
       resetScenario();
+      resetGasPanel();
       showImport(meta, warnings);
       scrollToStep("step-import");
       // Before costing, since which revisions apply changes every figure below.
@@ -334,6 +366,7 @@ function recompute() {
   drawMonthlyChart(intervals);
   renderProviders(intervals);
   renderAddedLoad();
+  renderGasPanel();
 }
 
 /**

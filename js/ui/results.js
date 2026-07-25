@@ -150,6 +150,14 @@ export function meterEligiblePlans(plans) {
  */
 export const byCost = (a, b) => a.total - b.total || b.unusedCredit - a.unusedCredit;
 
+// How close two plans have to be before the ranking can't really tell them
+// apart. The per-plan modelling error — the NEM baseline credit most of all,
+// which the README flags as running several percent generous — is bigger than a
+// gap this size, so a winner ahead by less than this is a near-tie, not a
+// recommendation. Used to caveat the headline and to mute the "vs best" cell.
+const NOISE_PCT = 0.05;
+export const withinNoise = (delta, best) => delta > 0.005 && delta <= best.total * NOISE_PCT;
+
 /** True for every row tied with the winner on both keys, so ties keep the star. */
 const isBest = (r, best) =>
   r.total - best.total < 0.005 && Math.abs(r.unusedCredit - best.unusedCredit) < 0.005;
@@ -159,15 +167,33 @@ export function renderHeadline(results, intervals) {
   const p = describePeriod(intervals, state.utility);
   const worst = results.at(-1);
   const spread = worst.total - best.total;
+
+  // A net exporter's bill floors on the non-bypassable charges and several plans
+  // tie there; that has its own explanation below, so the generic near-tie note
+  // is suppressed for it rather than stacked on top.
+  const floored = best.unusedCredit > 0.005
+    && best.total - (best.lines.fixed + best.lines.nonbypassable) < 0.005;
+
+  // The plans the ranking can't meaningfully separate from the winner (the
+  // winner included). More than one means the top of the table is a near-tie.
+  const closeRows = results.filter((r) => r.total - best.total <= best.total * NOISE_PCT);
+  const closeCall = !floored && closeRows.length > 1;
+  const closeGap = closeRows.at(-1).total - best.total;
+
   $("headline").innerHTML = `
     <div class="headline">
       <div class="big">${esc(best.planName)} — ${money(best.total)}</div>
       <div class="sub">
         Cheapest of ${results.length} plan${results.length === 1 ? "" : "s"} on
         ${esc(best.provider)} for ${esc(p.label)}.
+        ${closeCall
+          ? `<strong>Close call:</strong> the top ${closeRows.length} plans land within ` +
+            `${money(closeGap)} of each other — a gap smaller than this calculator's own ` +
+            `margin, so read them as a tie and choose on contract terms, not the order. ` +
+            `A small change in the rates or your usage could reshuffle them.`
+          : ""}
         ${spread > 0.005 ? `Switching to the most expensive would cost ${money(spread)} more.` : ""}
-        ${best.unusedCredit > 0.005
-          && best.total - (best.lines.fixed + best.lines.nonbypassable) < 0.005
+        ${floored
           ? `You export more than you import, so generation credits cancel everything they are ` +
             `allowed to and the bill lands on the Base Services Charge plus the non-bypassable ` +
             `charges on the power you did import, neither of which credits can offset. ` +
@@ -186,7 +212,14 @@ export function renderHeadline(results, intervals) {
  * the same rate.
  */
 function deltaCell(r, best, delta) {
-  if (delta >= 0.005) return "+" + money(delta);
+  if (delta >= 0.005) {
+    const txt = "+" + money(delta);
+    // A gap inside the modelling margin is drawn muted and marked, so a $30 flip
+    // never reads with the same weight as a $900 one.
+    return withinNoise(delta, best)
+      ? `<span class="delta-near" title="Within the calculator’s margin — effectively a tie">≈ ${txt}</span>`
+      : txt;
+  }
   const creditGap = best.unusedCredit - r.unusedCredit;
   if (creditGap < 0.005) return "—";
   return `<span class="credit-gap">${money(creditGap)} less credit</span>`;

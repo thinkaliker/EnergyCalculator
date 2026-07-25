@@ -12,6 +12,8 @@ import { extractBillFields } from "../js/bill.js";
 import { createCalendar, resolveHolidays, expectedIntervalsForDay } from "../js/calendar.js";
 import { costPlan, rankPlans } from "../js/cost.js";
 import { nemEligiblePlans } from "../js/nem.js";
+import { distributeTherms, costGasYear, gasSavingsFromRemoving } from "../js/gas-cost.js";
+import { withinNoise } from "../js/ui/results.js";
 
 // The calculator works entirely in local time: a tariff's 4pm is 4pm at the
 // meter, and the checks below assert that March 8 2026 is a 23-hour day and
@@ -1223,6 +1225,72 @@ check("plan the CCA does not serve throws", (() => {
   try { costPlan({ utility, planId: "dr", intervals: oneDay(0.1, 96), overlay: partial, pciaVintage: 2021 }); } catch (e) { return true; }
   return false;
 })(), true);
+
+// --- gas billing (js/gas-cost.js) ------------------------------------------
+// A synthetic gas utility with round numbers, so the tier math can be checked
+// by hand. Not rates/sdge-gas.json — that carries real, still-unverified tariff
+// figures, and pinning a test to them would make a rate update look like a code
+// regression. The floor is off here so the tier checks are clean; a second
+// fixture turns it on.
+const round2 = (x) => Number(x.toFixed(2));
+const gasFixture = {
+  rates_per_therm: { baseline: 1.0, non_baseline: 2.0 },
+  minimum_bill: { per_day: 0 },
+  baseline_periods: {
+    _source: "synthetic",
+    summer: { months: [5, 6, 7, 8, 9, 10], allowance_therms_per_day: 1.0 },
+    winter_on_peak: { months: [12, 1, 2], allowance_therms_per_day: 3.0 },
+    winter_off_peak: { months: [11, 3, 4], allowance_therms_per_day: 2.0 },
+  },
+};
+
+const gasFlat = new Array(12).fill(1 / 12);
+const gasDist = distributeTherms(1200, gasFlat);
+check("gas: distributeTherms preserves the annual total",
+  round2(gasDist.reduce((a, b) => a + b, 0)), 1200);
+check("gas: distributeTherms returns 12 months", gasDist.length, 12);
+
+// Everything in January (winter-on-peak, allowance 3.0/day x 31 = 93 therms).
+// 100 therms straddles the tier: 93 at $1 + 7 at $2 = $107.
+const gasJan = (t) => [t, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+const gasStrad = costGasYear({ gasUtility: gasFixture, monthlyTherms: gasJan(100), year: 2025 });
+check("gas: costGasYear tiers a straddling month", round2(gasStrad.total), 107.0);
+check("gas: costGasYear splits the tiers on their own lines",
+  `${round2(gasStrad.lines.baseline)}/${round2(gasStrad.lines.nonBaseline)}`, "93/14");
+
+// Minimum bill floors an otherwise-empty year: $0.10/day x 365 (2025 non-leap).
+const gasFixtureFloor = { ...gasFixture, minimum_bill: { per_day: 0.1 } };
+const gasEmpty = costGasYear({ gasUtility: gasFixtureFloor, monthlyTherms: new Array(12).fill(0), year: 2025 });
+check("gas: minimum bill floors an empty year", round2(gasEmpty.total), 36.5);
+
+// Tier-aware savings. Household is at 100 January therms (7 in the $2 tier);
+// removing a 20-therm appliance drops it to 80, all inside the $1 baseline.
+// Real saving is 107 - 80 = $27, not the 20 x average-rate ($1.07) = $21.40 a
+// naive estimate would give.
+const gasSave = gasSavingsFromRemoving({
+  gasUtility: gasFixture,
+  monthlyThermsTotal: gasJan(100),
+  applianceMonthlyTherms: gasJan(20),
+  year: 2025,
+});
+check("gas: savings from removing is tier-aware", round2(gasSave), 27.0);
+check("gas: tier-aware savings exceeds the naive average-rate estimate", gasSave > 21.4, true);
+
+// Smoke test against the real file: a real gas utility prices a real household
+// to a sane annual figure. Coarse bounds — the point is the file loads and
+// costs, not an exact number that a tariff update would break.
+const gasUtil = JSON.parse(readFileSync("rates/sdge-gas.json", "utf8"));
+const gasReal = costGasYear({ gasUtility: gasUtil, monthlyTherms: new Array(12).fill(50), year: 2025 });
+check("gas: real sdge-gas.json prices 600 therms/yr in a sane band",
+  gasReal.total > 1200 && gasReal.total < 1800, true);
+
+// --- near-tie indicator (js/ui/results.js) ---------------------------------
+// A winner ahead by less than the modelling margin is a near-tie, not a
+// recommendation. The threshold is 5% of the winner's total.
+check("noise: a 3% gap is inside the margin", withinNoise(0.03 * 400, { total: 400 }), true);
+check("noise: a 9% gap is a real difference", withinNoise(0.09 * 400, { total: 400 }), false);
+check("noise: the winner itself (zero gap) is not marked", withinNoise(0, { total: 400 }), false);
+check("noise: exactly 5% is still within", withinNoise(0.05 * 400, { total: 400 }), true);
 
 console.log(failed ? `\nFAIL — ${failed} check(s)` : "\nPASS — all checks");
 process.exit(failed ? 1 : 0);

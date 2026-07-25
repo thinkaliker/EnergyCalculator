@@ -46,6 +46,11 @@
       "id": "heating-winter",
       "name": "Heating, winter only",
       "path": "heating-winter.json"
+    },
+    {
+      "id": "electric-range",
+      "name": "Electric range",
+      "path": "electric-range.json"
     }
   ]
 }

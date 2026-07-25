@@ -8,6 +8,12 @@
       "path": "sdge.json"
     },
     {
+      "provider": "sdge",
+      "type": "utility_gas",
+      "effective_date": "2026-07-10",
+      "path": "sdge-gas.json"
+    },
+    {
       "provider": "cea",
       "type": "generation",
       "effective_date": "2026-06-01",
