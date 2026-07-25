@@ -20,7 +20,7 @@ import { parseBill } from "./js/bill.js";
 import { activeIntervals, costOptions } from "./js/ui/compute.js";
 import {
   renderTrimNote, renderTrueUp, renderCoverage, meterEligiblePlans, byCost,
-  renderHeadline, renderTable, renderExcluded, renderRateRevisions,
+  renderHeadline, renderTable, renderExcluded, renderRateRevisions, renderEstimateNote,
   renderProvenance, renderBuildInfo, providerRows, renderProviderTable,
 } from "./js/ui/results.js";
 import {
@@ -324,6 +324,7 @@ function recompute() {
   const selected = results.find((r) => r.planId === state.selectedPlanId) ?? results[0];
 
   renderCoverage(intervals);
+  renderEstimateNote(selected, results);
   renderRateRevisions(selected);
   renderTrueUp(intervals, selected);
   renderHeadline(results, intervals);

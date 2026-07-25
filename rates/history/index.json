@@ -1,5 +1,5 @@
 {
-  "generated": "2026-07-19",
+  "generated": "2026-07-25",
   "files": [
     {
       "provider": "sdge",
@@ -18,6 +18,18 @@
       "type": "utility",
       "effective_date": "2026-01-01",
       "path": "sdge-2026-01-01.json"
+    },
+    {
+      "provider": "sdge",
+      "type": "utility",
+      "effective_date": "2025-10-01",
+      "path": "sdge-2025-10-01.json"
+    },
+    {
+      "provider": "sdge",
+      "type": "utility",
+      "effective_date": "2025-06-01",
+      "path": "sdge-2025-06-01.json"
     }
   ]
 }

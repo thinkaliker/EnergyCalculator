@@ -159,40 +159,55 @@ export function createExportPricer({ exportTable, vintage, adderPerKWh = 0, cale
  */
 export function settleMonthlyCredits(byMonth, { periodBoundaries = [] } = {}) {
   const boundaries = new Set(periodBoundaries);
-  let balance = 0;
+  // `credit` is the banked balance, held as a positive number of dollars. It
+  // only ever offsets a *later* month's charge — credit does not flow backwards
+  // in time, so a charge month with no prior balance is paid in full even if a
+  // later month runs a surplus. `energyCharges` accumulates what is actually
+  // paid, which is the figure the total is built on.
+  let credit = 0;
+  let energyCharges = 0;
   let monthsInCredit = 0;
   let forfeitedCredit = 0;
   const ledger = [];
 
   for (const month of [...byMonth.keys()].sort()) {
     const { energy, netKWh = 0 } = byMonth.get(month);
-    const opening = balance;
-    balance += energy;
-    if (energy < 0) monthsInCredit++;
+
+    let appliedCredits = 0;
+    if (energy >= 0) {
+      appliedCredits = Math.min(energy, credit);
+      credit -= appliedCredits;
+      energyCharges += energy - appliedCredits;
+    } else {
+      credit += -energy;
+      monthsInCredit++;
+    }
 
     // The bill's own columns: what this month's energy cost, how much stored
-    // credit went to cancelling it, and what is left carrying forward.
+    // credit went to cancelling it, and what is left carrying forward. The
+    // cumulative balance is printed as a credit (negative), matching the bill.
     ledger.push({
       month,
       netKWh,
       energyDollars: energy,
-      appliedCredits: opening < 0 ? Math.min(-opening, Math.max(energy, 0)) : 0,
-      remainingCredits: balance < 0 ? -balance : 0,
-      cumulativeBalance: balance,
+      appliedCredits,
+      remainingCredits: credit,
+      cumulativeBalance: -credit,
       trueUp: boundaries.has(month),
     });
 
     if (boundaries.has(month)) {
-      if (balance < 0) forfeitedCredit += -balance;
-      balance = 0;
+      forfeitedCredit += credit;
+      credit = 0;
     }
   }
 
   return {
-    energyCharges: Math.max(balance, 0),
+    // Dollars actually paid for energy over the period, after carry-forward.
+    energyCharges,
     monthsInCredit,
     // Dollars of credit the customer ends the period holding and is not paid.
-    unusedCredit: balance < 0 ? -balance : 0,
+    unusedCredit: credit,
     // Dollars zeroed at a true-up date that the file actually spans.
     forfeitedCredit,
     ledger,

@@ -358,7 +358,14 @@ export function costPlan({
       const generationCost = t.net * t.genPrice;
       b.delivery += deliveryCost;
       b.generation += generationCost;
-      if (m) m.energy += deliveryCost + generationCost;
+      // The delivery LINE floors each period at zero — a net-exporting period
+      // prints "$.00000". Its delivery-side value is not lost though: SC 3(c)
+      // carries it forward as credit, so the bank sees the *unfloored* net.
+      // (`t.net * deliveryPrice` vs `billableNet * deliveryPrice` differ by
+      // exactly that carried credit.) Feeding the floored figure here, as this
+      // did until now, dropped the credit and billed a heavy overnight importer
+      // who exports at peak the full delivery on their imports.
+      if (m) m.energy += t.net * t.deliveryPrice + generationCost;
 
       // SDG&E's imputed generation floors the same way its delivery does — it
       // is the utility's own line, not the CCA's.
@@ -591,42 +598,42 @@ export function costPlan({
     );
   }
 
-  let total = subtotal + franchiseFeeDifferential + franchiseFeeEquivalent;
-
-  // --- solar settlement ---------------------------------------------------
-  // Credits carry month to month, and stop carrying at the true-up date, where
-  // Schedule NEM-ST SC 3 hands whatever is left to the utility. A net producer
-  // is compensated instead under SC 3(h) — but on surplus *kWh*, not on this
-  // dollar balance, and at a rate this calculator does not model. So the bill
-  // floors and the leftover is reported rather than booked as a negative total.
   let unusedCredit = 0;
   let monthsInCredit = 0;
   let forfeitedCredit = 0;
   let ledger = [];
+  let total;
+
+  // --- solar settlement ---------------------------------------------------
+  // Energy (delivery + generation) is credited and carried month to month; the
+  // credit bank in `byMonth` holds the delivery-side value of exporting periods
+  // too, which the delivery LINE floors away but SC 3(c) carries as credit.
+  // What the bank cannot reach: the Base Services Charge, the non-bypassable
+  // charges, PCIA and the state regulatory fee — all billed on net import over
+  // the year. Schedule NEM-ST SC 3 says so outright for the NBCs: they "shall be
+  // billed based on the kWhs consumed in each metered interval net of exports,
+  // over the course of the 12-month period and cannot be offset by generation
+  // credits", and the same holds for the Base Services Charge.
+  //
+  // Franchise fees sit *above* that floor: on the net-exporter reference bill
+  // they were cancelled to the cent by an Applied Generation Credit, so any
+  // credit the energy settlement leaves behind offsets them next. Whatever is
+  // still unspent is reported, never paid out — at the true-up the utility keeps
+  // it, and a net producer is compensated instead under SC 3(h), on surplus
+  // *kWh* rather than this dollar balance (see js/trueup.js).
   if (nemMode !== "none") {
-    ({ unusedCredit, monthsInCredit, forfeitedCredit, ledger } = settleMonthlyCredits(byMonth, {
-      periodBoundaries: trueUpBoundaries,
-    }));
-    // Generation credits cannot reach the Base Services Charge or the
-    // non-bypassable charges. Schedule NEM-ST SC 3 states it outright:
-    // nonbypassable charges "shall be billed based on the kWhs consumed in each
-    // metered interval net of exports, over the course of the 12-month period
-    // and cannot be offset by generation credits" — and, for an exporter, "the
-    // customer-generator shall still be responsible for payment of the
-    // nonbypassable charges ... and no payment shall be made for the excess
-    // energy delivered to the grid".
-    //
-    // Confirmed on a net-exporter bill: 31 days, -831 kWh, 472 kWh of NBC
-    // usage. $24.60 Base Services + $7.12 NBC + $2.79 Wildfire Fund = $34.51,
-    // and the franchise fees below it ($1.83 + $0.19) were cancelled to the cent
-    // by an Applied Generation Credit — so fees are offsettable and these two
-    // are not. Flooring at `fixed` alone under-billed that account by $9.91.
-    const nonOffsettable = fixed + nonbypassable;
-    const offsettable = total - nonOffsettable;
-    if (offsettable < 0) {
-      unusedCredit = Math.max(unusedCredit, -offsettable);
-      total = nonOffsettable;
-    }
+    let energyCharges;
+    ({ energyCharges, unusedCredit, monthsInCredit, forfeitedCredit, ledger } = settleMonthlyCredits(
+      byMonth,
+      { periodBoundaries: trueUpBoundaries },
+    ));
+
+    const floor = fixed + nonbypassable + pcia + stateRegulatoryFee + baselineCredit;
+    const fees = franchiseFeeDifferential + franchiseFeeEquivalent;
+    const feesAfterCredit = Math.max(0, fees - unusedCredit);
+    unusedCredit = Math.max(0, unusedCredit - fees);
+    total = energyCharges + floor + feesAfterCredit;
+
     if (unusedCredit > 0) {
       notes.push(
         `Ends the period holding $${unusedCredit.toFixed(2)} of credit. It is not paid out — at the ` +
@@ -642,6 +649,8 @@ export function costPlan({
     if (monthsInCredit > 0) {
       notes.push(`${monthsInCredit} month(s) generated more value than they consumed.`);
     }
+  } else {
+    total = subtotal + franchiseFeeDifferential + franchiseFeeEquivalent;
   }
 
   // Minimum bill, where the plan has one — only EV-TOU still does. Every other

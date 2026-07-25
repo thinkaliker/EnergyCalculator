@@ -1,0 +1,1307 @@
+{
+  "provider": "sdge",
+  "type": "utility",
+  "effective_date": "2025-06-01",
+  "source_url": "https://tariffsprd.sdge.com/sdge/tariffs/?utilId=SDGE&bookId=ELEC&sectId=ELEC-SCHEDS&tarfRateGroup=Residential%20Rates",
+  "verified_against": "SDG&E Total Rates Tables effective 6/1/25 for Schedules TOU-DR1, EV-TOU-5, TOU-DR, TOU-DR2, TOU-ELEC, DR-SES, DR",
+  "human_reviewed": true,
+  "human_reviewed_note": "Machine-extracted from the dated Total Rates Tables; awaiting human review.",
+  "_notes": {
+    "scope": "A PAST REVISION, superseded 2025-10-01. Carries 7 schedules (tou-dr1, ev-tou-5, tou-dr, tou-dr2, tou-elec, dr-ses, dr). EV-TOU-2 and EV-TOU publish no dated Total Rates Table under those names, so they fall back to the current revision with a warning; the PCIA table and file-level fixed charges still apply to them.",
+    "prices": "Delivery = UDC Total + WF-NBC; generation = EECC; both read straight off each schedule's table. DR-SES delivery net of NBC = 0.27830, matching the 8/20-9/18/25 bill; PCIA 2021 = -0.01364, matching that bill to the cent. TOU hour windows carried over from the current revision (the table prints prices by period name, not clock hours).",
+    "fixed": "Minimum Bill $0.402/day for TOU-DR1/TOU-DR/TOU-DR2/DR/DR-SES; EV-TOU-5 and TOU-ELEC carry a $16/month basic service fee instead. No AB 205 Base Services Charge yet.",
+    "carried_over": "seasons, day_types, baseline, and taxes_and_fees carried from the current revision unverified — the Total Rates Tables do not restate them.",
+    "approximations": "EV-TOU-5/TOU-ELEC monthly basic service fee (6/1/25) modelled as a daily rate. Rank-mapping assumes on>off>super price order held between 2025 and 2026, which it does."
+  },
+  "fixed_charges": {
+    "_source": "Total Rates Tables, Other Charges/Discounts rows",
+    "daily_service_charge": 0,
+    "minimum_bill_daily": 0.402
+  },
+  "baseline": {
+    "_source": "Schedule DR, Cal. P.U.C. Sheet 64339-E (Sheet 4), Special Condition 3, Advice Ltr. 4791-E effective Apr 1 2026. Units are kWh per day.",
+    "_all_electric": "All-Electric allowances require permanently installed electric space heating, or electric water heating with no energy from another source, and must be applied for.",
+    "_zone_lookup": "Climatic zones are defined by SDG&E 'Territory Served, Map No. 1' (tarfKey 187) — a raster map of geographic bands labeled by city, with no zip codes on it. There is no published zip-to-zone list, so v1 has the user pick their zone directly; their bill prints it.",
+    "climate_zones": {
+      "coastal": {
+        "basic": {
+          "summer_kwh_per_day": 9,
+          "winter_kwh_per_day": 9.2
+        },
+        "all_electric": {
+          "summer_kwh_per_day": 6,
+          "winter_kwh_per_day": 8.8
+        }
+      },
+      "inland": {
+        "basic": {
+          "summer_kwh_per_day": 10.4,
+          "winter_kwh_per_day": 9.6
+        },
+        "all_electric": {
+          "summer_kwh_per_day": 8.7,
+          "winter_kwh_per_day": 12.2
+        }
+      },
+      "mountain": {
+        "basic": {
+          "summer_kwh_per_day": 13.6,
+          "winter_kwh_per_day": 12.9
+        },
+        "all_electric": {
+          "summer_kwh_per_day": 15.2,
+          "winter_kwh_per_day": 22.1
+        }
+      },
+      "desert": {
+        "basic": {
+          "summer_kwh_per_day": 15.9,
+          "winter_kwh_per_day": 10.9
+        },
+        "all_electric": {
+          "summer_kwh_per_day": 17,
+          "winter_kwh_per_day": 17.1
+        }
+      }
+    },
+    "credit_per_kwh": -0.10663,
+    "credit_applies_up_to_pct_of_baseline": 130,
+    "credit_applies_to_plans": ["tou-dr1", "tou-dr", "tou-dr2"]
+  },
+  "seasons": {
+    "summer": {
+      "start": "06-01",
+      "end": "10-31"
+    },
+    "winter": {
+      "start": "11-01",
+      "end": "05-31"
+    }
+  },
+  "day_types": {
+    "_source": "Electric Rule 1 (ERULE1, tarfKey 77), 'HOLIDAYS' definition, Advice Ltr. 4375-E effective Jul 1 2024. Every TOU schedule cross-references this rule rather than listing dates itself.",
+    "_observance": "When a listed holiday falls on a SUNDAY, the following Monday is the holiday instead. When it falls on a Saturday, no change is made — there is no Friday observance.",
+    "_juneteenth": "Juneteenth (Jun 19) is NOT a TOU holiday. Rule 1 omits it, which independently confirms the earlier bill-validation finding — adding it made the known-answer test worse. See rates/VALIDATION.md.",
+    "_weekday_numbering": "weekday follows ISO: 1=Monday through 7=Sunday. nth counts occurrences in the month; -1 means the last.",
+    "_why_rules_not_dates": "Stored as rules rather than a date list so the calculator works for any year of imported data without a rate-file update. A hardcoded list would silently go stale and mis-price holidays in older or newer exports.",
+    "holiday_rules": [
+      {
+        "name": "New Year's Day",
+        "month": 1,
+        "day": 1
+      },
+      {
+        "name": "Presidents' Day",
+        "month": 2,
+        "weekday": 1,
+        "nth": 3
+      },
+      {
+        "name": "Memorial Day",
+        "month": 5,
+        "weekday": 1,
+        "nth": -1
+      },
+      {
+        "name": "Independence Day",
+        "month": 7,
+        "day": 4
+      },
+      {
+        "name": "Labor Day",
+        "month": 9,
+        "weekday": 1,
+        "nth": 1
+      },
+      {
+        "name": "Veterans Day",
+        "month": 11,
+        "day": 11
+      },
+      {
+        "name": "Thanksgiving Day",
+        "month": 11,
+        "weekday": 4,
+        "nth": 4
+      },
+      {
+        "name": "Christmas Day",
+        "month": 12,
+        "day": 25
+      }
+    ],
+    "sunday_observed_following_monday": true,
+    "saturday_observed": false
+  },
+  "taxes_and_fees": {
+    "_note": "Applied after Total Electric Charges. On the validated bill these came to $9.72 of $110.97 (~9%). All three bases were derived arithmetically from one bill and match to the cent — see rates/VALIDATION.md.",
+    "state_regulatory_fee_per_kwh": 0.001,
+    "state_regulatory_fee_source": "Schedule E-PUC, 'Surcharge to Fund Public Utilities Commission Reimbursement Fee', $0.001 per kWh for all service, Advice Ltr. 4763-E effective Jan 1 2026. Applies to all tariff rate schedules.",
+    "franchise_fee_differential_pct": 5.78,
+    "franchise_fee_differential_applies_to": "customers within the corporate limits of the City of San Diego",
+    "franchise_fee_differential_base": "total_electric_charges - pcia - wf_nbc",
+    "franchise_fee_differential_base_excludes_cca_generation": "On a CCA account 'total electric charges' is SDG&E's own total and stops above the CCA generation section. Schedule NEM-ST SC 3(c) requires the separation: 'The charges or credits resulting from a CCA's generation services shall not be co-mingled with charges or credits resulting from services provided by the Utility.' Verified against the net-exporter bill: 24.60 fixed + 7.12 NBC net of wildfire = 31.72 x 5.78% = 1.83, the figure printed.",
+    "franchise_fee_base_pct": 1.1,
+    "franchise_fee_base_source": "Preliminary Statement, General Information H.1 (EGENERAL, tarfKey 1), Advice Ltr. 3326-E effective Jan 1 2019: the Franchise Fee Differential is 'the difference between the franchise fee percentage and 1.1%'. So 1.1% is the base franchise fee everywhere in the territory, and a city's total is 1.1% plus its differential.",
+    "franchise_fee_equivalent_surcharge_pct": 6.88,
+    "franchise_fee_equivalent_surcharge_pct_DEPRECATED": "Kept for reference only — the engine now derives the rate as franchise_fee_base_pct + the city's differential. 6.88% is that derivation for the City of San Diego (1.1 + 5.78) and was never a territory-wide constant; applying it everywhere overcharged every customer outside San Diego by 5.78 points on this line.",
+    "franchise_fee_equivalent_surcharge_applies_to": "CCA customers only — the utility imputes its own Schedule EECC and charges franchise fees on that commodity amount (Schedule CCA, per D.97-10-087). Entities of the State of California or a political subdivision are exempt.",
+    "franchise_fee_equivalent_surcharge_base": "imputed_sdge_eecc + care_surcharge",
+    "franchise_fee_equivalent_surcharge_unverified": "The 6.88% rate is NOT published in Schedule CCA or CCA-CRS — it appears to be city-set. Taken from the bill. The base derivation (imputed EECC + CARE surcharge at 0.00437/kWh) reproduces the bill's 65.44 exactly, but is inferred from a single bill, not stated in any tariff.",
+    "franchise_fee_equivalent_surcharge_rate_VARIES_BY_CITY": "CONFIRMED city-set by a second bill: a CEA customer in a different city was charged 1.10%, against the 6.88% on the SDCP bill this figure came from. The BASE formula held up — the derived base came within 2.5% of that bill's printed 56.82 — but the rate is not a constant. The calculator applies 6.88% to everyone, which overstates this line for any city with a lower rate. Needs a city-to-rate mapping or a user input; see README 'Needs verifying'.",
+    "care_surcharge_per_kwh": 0.00437
+  },
+  "cca_adders": {
+    "_source": "Residential PCIA Rate table (CCA column), 6-1-25 Total Rates Tables",
+    "pcia_by_vintage": {
+      "2009": -0.00996,
+      "2010": -0.00629,
+      "2011": -0.00282,
+      "2012": 0.00081,
+      "2013": 0.00084,
+      "2014": 0.00096,
+      "2015": 0.00112,
+      "2016": 0.00094,
+      "2017": -0.00017,
+      "2018": -0.00713,
+      "2019": -0.01191,
+      "2020": -0.01107,
+      "2021": -0.01364,
+      "2022": -0.01778,
+      "2023": -0.03161,
+      "2024": 0.0021,
+      "2025": 0.0021
+    },
+    "pcia_vintage_used": 2026
+  },
+  "plans": [
+    {
+      "id": "tou-dr1",
+      "name": "TOU-DR1 — Residential Time-of-Use",
+      "eligibility": {
+        "notes": "SDG&E standard residential schedule. Recorded, not enforced yet."
+      },
+      "nonbypassable_charges": {
+        "ppp_per_kwh": 0.02101,
+        "nd_per_kwh": 0.00001,
+        "ctc_per_kwh": 0.0003,
+        "dwr_bc_per_kwh": 0,
+        "wf_nbc_per_kwh": 0.00595,
+        "total_per_kwh": 0.02727
+      },
+      "delivery": {
+        "summer": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.30074
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.30074
+            }
+          ]
+        },
+        "winter": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.43897
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.43897
+            }
+          ]
+        }
+      },
+      "generation": {
+        "summer": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 6,
+              "price_per_kwh": 0.07035
+            },
+            {
+              "start_hour": 6,
+              "end_hour": 10,
+              "price_per_kwh": 0.19639
+            },
+            {
+              "start_hour": 10,
+              "end_hour": 14,
+              "price_per_kwh": 0.07035
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.19639
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.43635
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.19639
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 14,
+              "price_per_kwh": 0.07035
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.19639
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.43635
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.19639
+            }
+          ]
+        },
+        "winter": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 6,
+              "price_per_kwh": 0.06399
+            },
+            {
+              "start_hour": 6,
+              "end_hour": 10,
+              "price_per_kwh": 0.08277
+            },
+            {
+              "start_hour": 10,
+              "end_hour": 14,
+              "price_per_kwh": 0.06399
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.08277
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.14748
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.08277
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 14,
+              "price_per_kwh": 0.06399
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.08277
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.14748
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.08277
+            }
+          ]
+        }
+      },
+      "fixed_charges": {
+        "daily_service_charge": 0,
+        "minimum_bill_daily": 0.402
+      }
+    },
+    {
+      "id": "ev-tou-5",
+      "name": "EV-TOU-5 — Cost-Based Domestic Time-of-Use for Households with Electric Vehicles",
+      "eligibility": {
+        "notes": "Requires an electric vehicle. Recorded, not enforced yet."
+      },
+      "nonbypassable_charges": {
+        "ppp_per_kwh": 0.02101,
+        "nd_per_kwh": 0.00001,
+        "ctc_per_kwh": 0.0003,
+        "dwr_bc_per_kwh": 0,
+        "wf_nbc_per_kwh": 0.00595,
+        "total_per_kwh": 0.02727
+      },
+      "delivery": {
+        "summer": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 6,
+              "price_per_kwh": 0.04982
+            },
+            {
+              "start_hour": 6,
+              "end_hour": 10,
+              "price_per_kwh": 0.325
+            },
+            {
+              "start_hour": 10,
+              "end_hour": 14,
+              "price_per_kwh": 0.04982
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.325
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.325
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.325
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 14,
+              "price_per_kwh": 0.04982
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.325
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.325
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.325
+            }
+          ]
+        },
+        "winter": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 6,
+              "price_per_kwh": 0.04982
+            },
+            {
+              "start_hour": 6,
+              "end_hour": 10,
+              "price_per_kwh": 0.325
+            },
+            {
+              "start_hour": 10,
+              "end_hour": 14,
+              "price_per_kwh": 0.04982
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.325
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.325
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.325
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 14,
+              "price_per_kwh": 0.04982
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.325
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.325
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.325
+            }
+          ]
+        }
+      },
+      "generation": {
+        "summer": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 6,
+              "price_per_kwh": 0.07035
+            },
+            {
+              "start_hour": 6,
+              "end_hour": 10,
+              "price_per_kwh": 0.14946
+            },
+            {
+              "start_hour": 10,
+              "end_hour": 14,
+              "price_per_kwh": 0.07035
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.14946
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.40592
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.14946
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 14,
+              "price_per_kwh": 0.07035
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.14946
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.40592
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.14946
+            }
+          ]
+        },
+        "winter": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 6,
+              "price_per_kwh": 0.06399
+            },
+            {
+              "start_hour": 6,
+              "end_hour": 10,
+              "price_per_kwh": 0.12379
+            },
+            {
+              "start_hour": 10,
+              "end_hour": 14,
+              "price_per_kwh": 0.06399
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.12379
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.17258
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.12379
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 14,
+              "price_per_kwh": 0.06399
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.12379
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.17258
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.12379
+            }
+          ]
+        }
+      },
+      "fixed_charges": {
+        "daily_service_charge": 0.52567,
+        "minimum_bill_daily": 0,
+        "_note": "$16.00/month basic service fee, modelled as a daily rate ($16 / 30.4375)."
+      }
+    },
+    {
+      "id": "tou-dr",
+      "name": "TOU-DR — Residential Time of Use Service",
+      "eligibility": {
+        "notes": "Optional residential schedule; requires interval metering. Recorded, not enforced yet."
+      },
+      "nonbypassable_charges": {
+        "ppp_per_kwh": 0.02101,
+        "nd_per_kwh": 0.00001,
+        "ctc_per_kwh": 0.0003,
+        "dwr_bc_per_kwh": 0,
+        "wf_nbc_per_kwh": 0.00595,
+        "total_per_kwh": 0.02727
+      },
+      "delivery": {
+        "summer": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.30074
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.30074
+            }
+          ]
+        },
+        "winter": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.43897
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.43897
+            }
+          ]
+        }
+      },
+      "generation": {
+        "summer": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 6,
+              "price_per_kwh": 0.14926
+            },
+            {
+              "start_hour": 6,
+              "end_hour": 10,
+              "price_per_kwh": 0.2268
+            },
+            {
+              "start_hour": 10,
+              "end_hour": 14,
+              "price_per_kwh": 0.14926
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.2268
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.29834
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.2268
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 14,
+              "price_per_kwh": 0.14926
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.2268
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.29834
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.2268
+            }
+          ]
+        },
+        "winter": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 6,
+              "price_per_kwh": 0.06187
+            },
+            {
+              "start_hour": 6,
+              "end_hour": 10,
+              "price_per_kwh": 0.08002
+            },
+            {
+              "start_hour": 10,
+              "end_hour": 14,
+              "price_per_kwh": 0.06187
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.08002
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.14258
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.08002
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 14,
+              "price_per_kwh": 0.06187
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.08002
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.14258
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.08002
+            }
+          ]
+        }
+      },
+      "fixed_charges": {
+        "daily_service_charge": 0,
+        "minimum_bill_daily": 0.402
+      }
+    },
+    {
+      "id": "tou-dr2",
+      "name": "TOU-DR2 — Residential Time-of-Use (two-period)",
+      "eligibility": {
+        "notes": "Available since Jan 1 2019 to domestic service with interval metering. Recorded, not enforced yet."
+      },
+      "nonbypassable_charges": {
+        "ppp_per_kwh": 0.02101,
+        "nd_per_kwh": 0.00001,
+        "ctc_per_kwh": 0.0003,
+        "dwr_bc_per_kwh": 0,
+        "wf_nbc_per_kwh": 0.00595,
+        "total_per_kwh": 0.02727
+      },
+      "delivery": {
+        "summer": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 16,
+              "price_per_kwh": 0.29819
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.30649
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.29819
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 16,
+              "price_per_kwh": 0.29819
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.30649
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.29819
+            }
+          ]
+        },
+        "winter": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.43897
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.43897
+            }
+          ]
+        }
+      },
+      "generation": {
+        "summer": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 16,
+              "price_per_kwh": 0.14442
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.43635
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.14442
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 16,
+              "price_per_kwh": 0.14442
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.43635
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.14442
+            }
+          ]
+        },
+        "winter": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 16,
+              "price_per_kwh": 0.07412
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.14748
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.07412
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 16,
+              "price_per_kwh": 0.07412
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.14748
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.07412
+            }
+          ]
+        }
+      },
+      "fixed_charges": {
+        "daily_service_charge": 0,
+        "minimum_bill_daily": 0.402
+      }
+    },
+    {
+      "id": "tou-elec",
+      "name": "TOU-ELEC — Domestic TOU for Households with EVs, Energy Storage, or Heat Pumps",
+      "eligibility": {
+        "notes": "Requires an EV/NGV, a Rule 21 behind-the-meter storage device, or an electric heat pump. Capped at 10,000 customers. Recorded, not enforced yet."
+      },
+      "nonbypassable_charges": {
+        "ppp_per_kwh": 0.02101,
+        "nd_per_kwh": 0.00001,
+        "ctc_per_kwh": 0.0003,
+        "dwr_bc_per_kwh": 0,
+        "wf_nbc_per_kwh": 0.00595,
+        "total_per_kwh": 0.02727
+      },
+      "delivery": {
+        "summer": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.24971
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.24971
+            }
+          ]
+        },
+        "winter": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.24971
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.24971
+            }
+          ]
+        }
+      },
+      "generation": {
+        "summer": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 6,
+              "price_per_kwh": 0.07458
+            },
+            {
+              "start_hour": 6,
+              "end_hour": 10,
+              "price_per_kwh": 0.11177
+            },
+            {
+              "start_hour": 10,
+              "end_hour": 14,
+              "price_per_kwh": 0.07458
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.11177
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.39444
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.11177
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 14,
+              "price_per_kwh": 0.07458
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.11177
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.39444
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.11177
+            }
+          ]
+        },
+        "winter": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 6,
+              "price_per_kwh": 0.06784
+            },
+            {
+              "start_hour": 6,
+              "end_hour": 10,
+              "price_per_kwh": 0.10166
+            },
+            {
+              "start_hour": 10,
+              "end_hour": 14,
+              "price_per_kwh": 0.06784
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.10166
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.20989
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.10166
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 14,
+              "price_per_kwh": 0.06784
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.10166
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.20989
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.10166
+            }
+          ]
+        }
+      },
+      "fixed_charges": {
+        "daily_service_charge": 0.52567,
+        "minimum_bill_daily": 0,
+        "_note": "$16.00/month basic service fee, modelled as a daily rate ($16 / 30.4375)."
+      }
+    },
+    {
+      "id": "dr-ses",
+      "name": "DR-SES — Domestic Time-of-Use for Households with a Solar Energy System",
+      "eligibility": {
+        "notes": "Requires an individually metered solar energy system. Recorded, not enforced yet."
+      },
+      "nonbypassable_charges": {
+        "ppp_per_kwh": 0.02101,
+        "nd_per_kwh": 0.00001,
+        "ctc_per_kwh": 0.0003,
+        "dwr_bc_per_kwh": 0,
+        "wf_nbc_per_kwh": 0.00595,
+        "total_per_kwh": 0.02727
+      },
+      "delivery": {
+        "summer": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.30557
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.30557
+            }
+          ]
+        },
+        "winter": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.30557
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 24,
+              "price_per_kwh": 0.30557
+            }
+          ]
+        }
+      },
+      "generation": {
+        "summer": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 6,
+              "price_per_kwh": 0.07035
+            },
+            {
+              "start_hour": 6,
+              "end_hour": 10,
+              "price_per_kwh": 0.14946
+            },
+            {
+              "start_hour": 10,
+              "end_hour": 14,
+              "price_per_kwh": 0.07035
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.14946
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.40592
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.14946
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 14,
+              "price_per_kwh": 0.07035
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.14946
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.40592
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.14946
+            }
+          ]
+        },
+        "winter": {
+          "weekday": [
+            {
+              "start_hour": 0,
+              "end_hour": 6,
+              "price_per_kwh": 0.06399
+            },
+            {
+              "start_hour": 6,
+              "end_hour": 10,
+              "price_per_kwh": 0.12379
+            },
+            {
+              "start_hour": 10,
+              "end_hour": 14,
+              "price_per_kwh": 0.06399
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.12379
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.17258
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.12379
+            }
+          ],
+          "weekend": [
+            {
+              "start_hour": 0,
+              "end_hour": 14,
+              "price_per_kwh": 0.06399
+            },
+            {
+              "start_hour": 14,
+              "end_hour": 16,
+              "price_per_kwh": 0.12379
+            },
+            {
+              "start_hour": 16,
+              "end_hour": 21,
+              "price_per_kwh": 0.17258
+            },
+            {
+              "start_hour": 21,
+              "end_hour": 24,
+              "price_per_kwh": 0.12379
+            }
+          ]
+        }
+      },
+      "fixed_charges": {
+        "daily_service_charge": 0,
+        "minimum_bill_daily": 0.402
+      }
+    },
+    {
+      "id": "dr",
+      "name": "DR — Residential Service (tiered, non-TOU)",
+      "pricing_model": "tiered",
+      "eligibility": {
+        "notes": "SDG&E's default residential schedule; no interval meter required. Recorded, not enforced yet."
+      },
+      "nonbypassable_charges": {
+        "ppp_per_kwh": 0.02101,
+        "nd_per_kwh": 0.00001,
+        "ctc_per_kwh": 0.0003,
+        "dwr_bc_per_kwh": 0,
+        "wf_nbc_per_kwh": 0.00595,
+        "total_per_kwh": 0.02727
+      },
+      "delivery": {
+        "summer": [
+          {
+            "up_to_pct_of_baseline": 130,
+            "price_per_kwh": 0.19057
+          },
+          {
+            "up_to_pct_of_baseline": null,
+            "price_per_kwh": 0.30074
+          }
+        ],
+        "winter": [
+          {
+            "up_to_pct_of_baseline": 130,
+            "price_per_kwh": 0.3288
+          },
+          {
+            "up_to_pct_of_baseline": null,
+            "price_per_kwh": 0.43897
+          }
+        ]
+      },
+      "generation": {
+        "summer": [
+          {
+            "up_to_pct_of_baseline": 130,
+            "price_per_kwh": 0.23459
+          },
+          {
+            "up_to_pct_of_baseline": null,
+            "price_per_kwh": 0.23459
+          }
+        ],
+        "winter": [
+          {
+            "up_to_pct_of_baseline": 130,
+            "price_per_kwh": 0.09636
+          },
+          {
+            "up_to_pct_of_baseline": null,
+            "price_per_kwh": 0.09636
+          }
+        ]
+      },
+      "fixed_charges": {
+        "daily_service_charge": 0,
+        "minimum_bill_daily": 0.402
+      }
+    }
+  ]
+}

@@ -14,7 +14,10 @@ export function activeIntervals() {
   let out = state.raw;
   let dropped = [];
   if ($("trim").checked) ({ intervals: out, dropped } = trimIncompleteDays(out));
-  out = selectPeriod(out, $("period").value);
+  // The "relevant" period snaps to the customer's true-up grid, so it needs the
+  // date — read from the field, or inferred from the data when the field is
+  // blank, exactly as the true-up ledger derives it.
+  out = selectPeriod(out, $("period").value, { trueUpDate: trueUpDate(out) });
   return { intervals: out, dropped };
 }
 

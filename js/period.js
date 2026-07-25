@@ -64,12 +64,53 @@ export function trimIncompleteDays(intervals) {
 }
 
 /**
- * @param {string} mode "full" (everything) or "ytd" (Jan 1 through end of data)
+ * @param {string} mode "full" (everything), "ytd" (Jan 1 through end of data),
+ *   or "relevant" (one true-up year — see selectRelevantPeriod)
+ * @param {object} [opts]
+ * @param {Date}   [opts.trueUpDate] anchors the "relevant" window to the
+ *   customer's Relevant Period grid; without it that mode falls back to the
+ *   trailing twelve months of data
  */
-export function selectPeriod(intervals, mode) {
-  if (mode !== "ytd" || !intervals.length) return intervals;
-  const lastYear = intervals.at(-1).start.getFullYear();
-  const cutoff = new Date(lastYear, 0, 1);
+export function selectPeriod(intervals, mode, { trueUpDate = null } = {}) {
+  if (!intervals.length) return intervals;
+  if (mode === "ytd") {
+    const cutoff = new Date(intervals.at(-1).start.getFullYear(), 0, 1);
+    return intervals.filter((iv) => iv.start >= cutoff);
+  }
+  if (mode === "relevant") return selectRelevantPeriod(intervals, trueUpDate);
+  return intervals;
+}
+
+/**
+ * The single true-up year the file best represents.
+ *
+ * A 13-month Green Button export straddles two Relevant Periods, and costing the
+ * whole thing as one bill double-counts a month of the shared season — which is
+ * exactly what made a net-metering household's annual figure read a month too
+ * high. This pins the estimate to one true-up year: the period the file covers
+ * most completely, clamped to the data actually present.
+ *
+ * With no true-up date there is no grid to snap to, so it falls back to the
+ * trailing twelve months ending at the last day of data — still one year, just
+ * not anchored to an anniversary.
+ */
+export function selectRelevantPeriod(intervals, trueUpDate) {
+  const first = intervals[0].start;
+  const last = intervals.at(-1).start;
+
+  if (trueUpDate) {
+    const periods = relevantPeriods(first, last, trueUpDate);
+    if (periods.length) {
+      const coveredDays = (p) => (p.covered.to - p.covered.from) / 86400000;
+      const best = periods.reduce((a, b) => (coveredDays(b) > coveredDays(a) ? b : a));
+      // The Relevant Period is [start, trueUp): a reading on the anniversary day
+      // itself opens the next year. Data ending before the anniversary is kept
+      // whole, since all of it precedes that boundary.
+      return intervals.filter((iv) => iv.start >= best.covered.from && iv.start < best.trueUp);
+    }
+  }
+
+  const cutoff = new Date(last.getFullYear() - 1, last.getMonth(), last.getDate());
   return intervals.filter((iv) => iv.start >= cutoff);
 }
 

@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rate datasets — review</title>
+<style>
+  :root {
+    --bg: #fbfbfa; --panel: #fff; --ink: #1a1a19; --muted: #6b6b66;
+    --line: #e5e4e0; --accent: #2f6f4f; --warn-bg: #fff4e5; --warn-ink: #8a5a00;
+    --neg: #b03636; --pos: #2f6f4f; --chip: #eef0ee; --hover: #f2f2f0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17181a; --panel: #1f2124; --ink: #e9e9e6; --muted: #9a9a95;
+      --line: #313337; --accent: #6bbf92; --warn-bg: #3a2f18; --warn-ink: #e6b866;
+      --neg: #e57373; --pos: #6bbf92; --chip: #2a2c30; --hover: #2a2c30;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 14px 20px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    position: sticky; top: 0; background: var(--bg); z-index: 5;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .layout { display: grid; grid-template-columns: 260px 1fr; min-height: calc(100vh - 52px); }
+  nav { border-right: 1px solid var(--line); padding: 12px 0; overflow-y: auto; }
+  nav .group { padding: 10px 18px 4px; font-size: 11px; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+  nav a { display: flex; justify-content: space-between; gap: 8px; padding: 6px 18px;
+    cursor: pointer; color: var(--ink); text-decoration: none; border-left: 2px solid transparent; }
+  nav a:hover { background: var(--hover); }
+  nav a.active { background: var(--hover); border-left-color: var(--accent); font-weight: 600; }
+  nav a .tag { font-size: 11px; color: var(--muted); }
+  main { padding: 22px 26px; overflow-x: auto; max-width: 100%; }
+  h2 { font-size: 18px; margin: 0 0 4px; }
+  h3 { font-size: 14px; margin: 22px 0 8px; }
+  .path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); font-size: 12px; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px;
+    background: var(--chip); color: var(--ink); }
+  .badge.warn { background: var(--warn-bg); color: var(--warn-ink); }
+  .badge.ok { background: color-mix(in srgb, var(--pos) 18%, transparent); color: var(--pos); }
+  .notice { background: var(--warn-bg); color: var(--warn-ink); border-radius: 8px;
+    padding: 10px 12px; margin: 12px 0; font-size: 13px; }
+  table { border-collapse: collapse; font-size: 13px; margin: 6px 0 4px; }
+  th, td { text-align: left; padding: 5px 12px 5px 0; border-bottom: 1px solid var(--line);
+    vertical-align: top; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .neg { color: var(--neg); }
+  .pos { color: var(--pos); }
+  .plan { border: 1px solid var(--line); border-radius: 8px; margin: 8px 0; background: var(--panel); }
+  .plan > summary { cursor: pointer; padding: 10px 14px; font-weight: 600;
+    display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .plan > summary .path { font-weight: 400; }
+  .plan .body { padding: 4px 14px 14px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+  .blocks { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+  details.notes { margin: 10px 0; }
+  details.notes > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  details.notes pre { white-space: pre-wrap; word-break: break-word; font-size: 12px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
+  a.src { color: var(--accent); font-size: 12px; word-break: break-all; }
+  .muted { color: var(--muted); }
+  .keyfig { display: flex; gap: 22px; flex-wrap: wrap; margin: 10px 0; }
+  .keyfig div { font-size: 13px; }
+  .keyfig b { display: block; font-size: 18px; }
+  .loading { color: var(--muted); padding: 20px 0; }
+  @media (max-width: 720px) { .layout { grid-template-columns: 1fr; } nav { border-right: none; border-bottom: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Rate datasets</h1>
+  <span class="sub" id="summary"></span>
+</header>
+<div class="layout">
+  <nav id="nav"></nav>
+  <main id="main"><p class="loading">Loading manifests…</p></main>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const RATES = "rates/", HIST = "rates/history/", PROF = "profiles/";
+const fmt = (n) => (typeof n === "number" ? "$" + n.toFixed(5).replace(/0+$/, "").replace(/\.$/, ".0") : n);
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const cache = new Map();
+async function getJSON(path) {
+  if (cache.has(path)) return cache.get(path);
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(r.status + " " + path);
+  const j = await r.json();
+  cache.set(path, j);
+  return j;
+}
+
+let items = []; // {key, label, tag, group, kind, path, meta}
+
+async function boot() {
+  try {
+    const [ri, hi, pi] = await Promise.all([
+      getJSON(RATES + "index.json"),
+      getJSON(HIST + "index.json").catch(() => ({ files: [] })),
+      getJSON(PROF + "index.json").catch(() => ({ profiles: [] })),
+    ]);
+    const util = ri.files.filter((f) => f.type === "utility");
+    const gen = ri.files.filter((f) => f.type === "generation");
+    const other = ri.files.filter((f) => f.type !== "utility" && f.type !== "generation");
+
+    items.push({ key: "overview", label: "Overview", group: "Overview", kind: "overview" });
+    util.forEach((f) => items.push({ key: f.path, label: "sdge (current)", tag: f.effective_date, group: "Utility — current", kind: "utility", base: RATES, path: f.path }));
+    (hi.files || []).forEach((f) => items.push({ key: "h:" + f.path, label: f.effective_date, tag: "history", group: "Utility — history", kind: "utility", base: HIST, path: f.path }));
+    gen.forEach((f) => items.push({ key: f.path, label: f.product || f.provider, tag: f.provider, group: "CCA overlays", kind: "generation", base: RATES, path: f.path }));
+    other.forEach((f) => items.push({ key: f.path, label: f.path.replace(".json", ""), tag: f.type, group: "Other", kind: f.type, base: RATES, path: f.path }));
+    (pi.profiles || []).forEach((p) => items.push({ key: "p:" + p.path, label: p.name || p.id, tag: p.kind || "load", group: "Profiles", kind: "profile", base: PROF, path: p.path }));
+
+    $("summary").textContent = `${util.length} current · ${(hi.files || []).length} archived · ${gen.length} CCA · ${(pi.profiles || []).length} profiles`;
+    renderNav();
+    show("overview");
+  } catch (e) {
+    $("main").innerHTML = `<div class="notice">Couldn't load manifests: ${esc(e.message)}.<br>Serve this next to <span class="path">index.html</span> (e.g. <span class="path">python3 -m http.server</span>) so it can fetch the rate files.</div>`;
+  }
+}
+
+function renderNav() {
+  const groups = [...new Set(items.map((i) => i.group))];
+  $("nav").innerHTML = groups.map((g) =>
+    `<div class="group">${esc(g)}</div>` +
+    items.filter((i) => i.group === g).map((i) =>
+      `<a data-key="${esc(i.key)}">${esc(i.label)}${i.tag ? `<span class="tag">${esc(i.tag)}</span>` : ""}</a>`
+    ).join("")
+  ).join("");
+  $("nav").querySelectorAll("a").forEach((a) => a.onclick = () => show(a.dataset.key));
+}
+
+function show(key) {
+  $("nav").querySelectorAll("a").forEach((a) => a.classList.toggle("active", a.dataset.key === key));
+  const item = items.find((i) => i.key === key);
+  $("main").innerHTML = `<p class="loading">Loading…</p>`;
+  const fail = (e) => $("main").innerHTML = `<div class="notice">${esc(e.message || e)}</div>`;
+  if (key === "overview") return renderOverview().catch(fail);
+  getJSON(item.base + item.path)
+    .then((doc) => {
+      if (item.kind === "utility") renderUtility(item, doc);
+      else if (item.kind === "generation") renderOverlay(item, doc);
+      else if (item.kind === "cities") renderCities(item, doc);
+      else if (item.kind === "export_prices") renderExport(item, doc);
+      else if (item.kind === "profile") renderProfile(item, doc);
+      else renderRaw(item, doc);
+    })
+    .catch((e) => $("main").innerHTML = `<div class="notice">${esc(e.message)}</div>`);
+}
+
+// --- Overview: every utility revision, key figures side by side ------------
+async function renderOverview() {
+  const utils = items.filter((i) => i.kind === "utility");
+  const rows = await Promise.all(utils.map(async (i) => {
+    const d = await getJSON(i.base + i.path);
+    const drses = (d.plans || []).find((p) => p.id === "dr-ses");
+    const deliv = drses?.delivery?.summer?.weekday?.[0]?.price_per_kwh;
+    const nbc = drses?.nonbypassable_charges?.total_per_kwh;
+    const fx = d.fixed_charges || {};
+    const fixed = fx.daily_service_charge ? `BSC $${fx.daily_service_charge}/d`
+      : fx.minimum_bill_daily ? `min bill $${fx.minimum_bill_daily}/d` : "—";
+    return {
+      eff: d.effective_date, reviewed: d.human_reviewed,
+      plans: (d.plans || []).length,
+      pcia21: d.cca_adders?.pcia_by_vintage?.["2021"],
+      fixed,
+      drsesNet: deliv != null && nbc != null ? deliv - nbc : null,
+      scope: d._notes?.scope || (typeof d.notes === "string" ? d.notes : "") || "",
+    };
+  }));
+  rows.sort((a, b) => b.eff.localeCompare(a.eff));
+  $("main").innerHTML = `
+    <h2>Overview — SDG&amp;E utility revisions</h2>
+    <p class="muted">Every current and archived revision. Use it to sanity-check the 2025 backfill: PCIA 2021 goes negative in 2025, and the fixed charge switches from a Minimum Bill to the Base Services Charge on 10-1-25.</p>
+    <table>
+      <tr><th>Effective</th><th>Reviewed</th><th class="num">Plans</th><th class="num">PCIA 2021</th><th>Fixed</th><th class="num">DR-SES deliv (net of NBC)</th><th>Scope</th></tr>
+      ${rows.map((r) => `<tr>
+        <td><b>${esc(r.eff)}</b></td>
+        <td>${r.reviewed === true ? `<span class="badge ok">reviewed</span>` : r.reviewed === false ? `<span class="badge warn">draft</span>` : `<span class="badge">current</span>`}</td>
+        <td class="num">${r.plans}</td>
+        <td class="num ${sign(r.pcia21)}">${r.pcia21 != null ? fmt(r.pcia21) : "—"}</td>
+        <td>${esc(r.fixed)}</td>
+        <td class="num">${r.drsesNet != null ? fmt(r.drsesNet) : "—"}</td>
+        <td class="muted" style="white-space:normal;max-width:340px">${esc((r.scope || "").slice(0, 140))}</td>
+      </tr>`).join("")}
+    </table>
+    <p class="muted" style="margin-top:16px">Click any dataset on the left to inspect its full contents.</p>`;
+}
+const sign = (n) => (typeof n !== "number" ? "" : n < 0 ? "neg" : "pos");
+
+// --- Utility / history file ------------------------------------------------
+function renderUtility(item, d) {
+  const pcia = d.cca_adders?.pcia_by_vintage || {};
+  const fx = d.fixed_charges || {};
+  const reviewedBadge = d.human_reviewed === true
+    ? `<span class="badge ok">human reviewed</span>`
+    : d.human_reviewed === false
+      ? `<span class="badge warn">draft — not human reviewed</span>`
+      : `<span class="badge">current file</span>`;
+  $("main").innerHTML = `
+    <h2>${esc(d.provider)} · ${esc(d.effective_date)} ${reviewedBadge}</h2>
+    <div class="path">${esc(item.base + item.path)}</div>
+    ${d.human_reviewed === false ? `<div class="notice">This revision was extracted automatically and has not been read against the tariff by a person. Its numbers are used in full; review before relying on them.</div>` : ""}
+    <div class="keyfig">
+      <div><span class="muted">Plans</span><b>${(d.plans || []).length}</b></div>
+      <div><span class="muted">PCIA 2021</span><b class="${sign(pcia["2021"])}">${pcia["2021"] != null ? fmt(pcia["2021"]) : "—"}</b></div>
+      <div><span class="muted">Fixed / day</span><b>${fx.daily_service_charge ? "$" + fx.daily_service_charge : fx.minimum_bill_daily ? "$" + fx.minimum_bill_daily + " min" : "—"}</b></div>
+      <div><span class="muted">State reg fee</span><b>${d.taxes_and_fees?.state_regulatory_fee_per_kwh != null ? fmt(d.taxes_and_fees.state_regulatory_fee_per_kwh) : "—"}</b></div>
+    </div>
+    ${d.verified_against ? `<p class="muted">Verified against: ${esc(d.verified_against)}</p>` : ""}
+    ${d.source_url ? `<p><a class="src" href="${esc(d.source_url)}" target="_blank" rel="noopener">${esc(d.source_url)}</a></p>` : ""}
+    ${notesBlock(d._notes || d.notes)}
+    <h3>PCIA by vintage</h3>
+    ${pciaTable(pcia)}
+    <h3>Fixed charges</h3>
+    ${kvTable(fx)}
+    <h3>Plans (${(d.plans || []).length})</h3>
+    ${(d.plans || []).map((p) => planBlock(p)).join("")}
+  `;
+}
+
+function pciaTable(pcia) {
+  const ks = Object.keys(pcia).filter((k) => /^\d{4}$/.test(k)).sort();
+  if (!ks.length) return `<p class="muted">none</p>`;
+  return `<table><tr>${ks.map((k) => `<th class="num">${k}</th>`).join("")}</tr>
+    <tr>${ks.map((k) => `<td class="num ${sign(pcia[k])}">${fmt(pcia[k])}</td>`).join("")}</tr></table>`;
+}
+
+function planBlock(p) {
+  const model = p.pricing_model || "tou";
+  const nbc = p.nonbypassable_charges;
+  return `<details class="plan"><summary>${esc(p.id)} <span class="path">${esc(p.name || "")}</span>
+    <span class="badge">${esc(model)}</span>${p.fixed_charges ? `<span class="badge">own fixed</span>` : ""}</summary>
+    <div class="body">
+      ${p.fixed_charges ? `<div class="muted">Fixed: ${esc(JSON.stringify(stripUnderscore(p.fixed_charges)))}</div>` : ""}
+      ${nbc ? `<div class="muted">NBC total ${fmt(nbc.total_per_kwh)} = PPP ${fmt(nbc.ppp_per_kwh)} + ND ${fmt(nbc.nd_per_kwh)} + CTC ${fmt(nbc.ctc_per_kwh)} + WF-NBC ${fmt(nbc.wf_nbc_per_kwh)}</div>` : ""}
+      <div class="grid2">
+        <div><h4 style="margin:10px 0 4px">Delivery</h4>${model === "tiered" ? tierTable(p.delivery) : touTable(p.delivery)}</div>
+        <div><h4 style="margin:10px 0 4px">Generation</h4>${model === "tiered" ? tierTable(p.generation) : touTable(p.generation)}</div>
+      </div>
+    </div></details>`;
+}
+
+function touTable(tree) {
+  if (!tree) return `<p class="muted">—</p>`;
+  const cell = (season, dt) => {
+    const blocks = tree[season]?.[dt];
+    if (!blocks) return `<span class="muted">—</span>`;
+    return `<span class="blocks">${blocks.map((b) =>
+      `${b.start_hour}–${b.end_hour}${b.months ? "[m" + b.months.join(",") + "]" : ""}: ${fmt(b.price_per_kwh)}`
+    ).join("<br>")}</span>`;
+  };
+  return `<table>
+    <tr><th></th><th>weekday</th><th>weekend</th></tr>
+    <tr><td class="muted">summer</td><td>${cell("summer", "weekday")}</td><td>${cell("summer", "weekend")}</td></tr>
+    <tr><td class="muted">winter</td><td>${cell("winter", "weekday")}</td><td>${cell("winter", "weekend")}</td></tr>
+  </table>`;
+}
+
+function tierTable(tree) {
+  if (!tree) return `<p class="muted">—</p>`;
+  const row = (season) => (tree[season] || []).map((t) =>
+    `${t.up_to_pct_of_baseline == null ? "above" : "≤" + t.up_to_pct_of_baseline + "%"}: ${fmt(t.price_per_kwh)}`).join("<br>");
+  return `<table>
+    <tr><td class="muted">summer</td><td class="blocks">${row("summer")}</td></tr>
+    <tr><td class="muted">winter</td><td class="blocks">${row("winter")}</td></tr></table>`;
+}
+
+// --- CCA overlay -----------------------------------------------------------
+function renderOverlay(item, d) {
+  $("main").innerHTML = `
+    <h2>${esc(d.product || d.provider)} <span class="badge">${esc(d.provider)}</span></h2>
+    <div class="path">${esc(item.base + item.path)}</div>
+    <div class="keyfig">
+      <div><span class="muted">PCIA vintage</span><b>${d.pcia_vintage ?? "—"}</b></div>
+      <div><span class="muted">Rate group</span><b>${esc(d.rate_group ?? "—")}</b></div>
+      <div><span class="muted">Renewable</span><b>${d.renewable_content_pct != null ? d.renewable_content_pct + "%" : "—"}</b></div>
+      <div><span class="muted">NBT adder</span><b>${d.nbt_generation_adder_per_kwh != null ? fmt(d.nbt_generation_adder_per_kwh) : "—"}</b></div>
+      ${d.generation_credit_per_kwh != null ? `<div><span class="muted">Gen credit</span><b class="neg">${fmt(d.generation_credit_per_kwh)}</b></div>` : ""}
+    </div>
+    ${d.verified_against ? `<p class="muted">Verified against: ${esc(d.verified_against)}</p>` : ""}
+    ${d.source_url ? `<p><a class="src" href="${esc(d.source_url)}" target="_blank" rel="noopener">${esc(d.source_url)}</a></p>` : ""}
+    ${d.service_area ? `<p class="muted">Service area: ${esc(d.service_area)}</p>` : ""}
+    ${notesBlock(d._notes)}
+    <h3>Generation by plan (${Object.keys(d.plans || {}).length})</h3>
+    ${Object.entries(d.plans || {}).map(([id, tree]) =>
+      `<details class="plan"><summary>${esc(id)}</summary><div class="body">${
+        Array.isArray(tree.summer) ? tierTable(tree) : touTable(tree)
+      }</div></details>`).join("")}
+  `;
+}
+
+// --- cities ----------------------------------------------------------------
+function renderCities(item, d) {
+  const ff = d.franchise_fee || {};
+  $("main").innerHTML = `
+    <h2>Cities &amp; franchise fees</h2>
+    <div class="path">${esc(item.base + item.path)}</div>
+    <div class="keyfig">
+      <div><span class="muted">Base franchise fee</span><b>${ff.base_pct ?? "—"}%</b></div>
+      <div><span class="muted">Differentials</span><b>${Object.entries(ff.differentials_pct || {}).map(([c, v]) => c + " " + v + "%").join(", ") || "—"}</b></div>
+      <div><span class="muted">Cities</span><b>${(d.cities || []).length}</b></div>
+    </div>
+    <h3>Cities</h3>
+    <table><tr><th>City</th><th>CCA</th><th>Rate group</th></tr>
+    ${(d.cities || []).map((c) => `<tr><td>${esc(c.name)}</td><td>${esc(c.cca || "—")}</td><td>${esc(c.cca_rate_group || "—")}</td></tr>`).join("")}
+    </table>`;
+}
+
+// --- export prices (NBT) — summary only, the file is large -----------------
+function renderExport(item, d) {
+  const vints = Object.keys(d.vintages || {});
+  const sample = vints[0] && d.vintages[vints[0]];
+  const yrs = sample ? Object.keys(sample) : [];
+  const y = yrs[0] && sample[yrs[0]];
+  $("main").innerHTML = `
+    <h2>NBT export prices</h2>
+    <div class="path">${esc(item.base + item.path)}</div>
+    <div class="notice">Large generated file — summary only. Regenerated by <span class="path">scripts/fetch-nbt-export.mjs</span>, never hand-edited.</div>
+    <div class="keyfig">
+      <div><span class="muted">Vintages</span><b>${vints.join(", ") || "—"}</b></div>
+      <div><span class="muted">Years (${vints[0] || ""})</span><b>${yrs.join(", ") || "—"}</b></div>
+      <div><span class="muted">Components</span><b>${y ? Object.keys(y).join(", ") : "—"}</b></div>
+    </div>
+    ${y ? `<h3>Sample — ${esc(vints[0])} ${esc(yrs[0])}, month 9, weekday</h3>
+      <p class="muted">Hourly $/kWh, generation + delivery components.</p>
+      ${["generation", "delivery"].filter((c) => y[c]?.["9"]?.weekday).map((c) => {
+        const row = y[c]["9"].weekday;
+        return `<div class="blocks"><b>${c}:</b> ${row.map((v, h) => `${h}h ${fmt(v)}`).join(" · ")}</div>`;
+      }).join("")}` : ""}`;
+}
+
+// --- profile ---------------------------------------------------------------
+function renderProfile(item, d) {
+  const shape = d.monthly_shape || (d.hourly_shape ? [d.hourly_shape] : []);
+  const sum = shape.flat().reduce((a, b) => a + b, 0);
+  $("main").innerHTML = `
+    <h2>${esc(d.name || d.id)} <span class="badge">${esc(d.kind || "load")}</span></h2>
+    <div class="path">${esc(item.base + item.path)}</div>
+    <div class="keyfig">
+      <div><span class="muted">Annual kWh</span><b>${d.annual_kwh ?? "—"}</b></div>
+      <div><span class="muted">Shape</span><b>${d.monthly_shape ? "12×24 monthly" : "24 hourly"}</b></div>
+      <div><span class="muted">Sums to</span><b>${sum.toFixed(4)}</b></div>
+    </div>
+    ${d.specific_yield_kwh_per_kw ? `<p class="muted">Specific yield: ${d.specific_yield_kwh_per_kw} kWh/kW</p>` : ""}
+    <h3>Hourly shape ${d.monthly_shape ? "(row = month)" : ""}</h3>
+    <table><tr><th></th>${Array.from({ length: 24 }, (_, h) => `<th class="num">${h}</th>`).join("")}</tr>
+    ${shape.map((row, m) => `<tr><td class="muted">${d.monthly_shape ? "M" + (m + 1) : ""}</td>${
+      row.map((v) => `<td class="num">${v ? v.toFixed(3) : "·"}</td>`).join("")}</tr>`).join("")}
+    </table>`;
+}
+
+function renderRaw(item, d) {
+  $("main").innerHTML = `<h2>${esc(item.path)}</h2><div class="path">${esc(item.base + item.path)}</div>
+    <details class="notes" open><summary>raw JSON</summary><pre>${esc(JSON.stringify(d, null, 2))}</pre></details>`;
+}
+
+// --- helpers ---------------------------------------------------------------
+function stripUnderscore(o) {
+  return Object.fromEntries(Object.entries(o).filter(([k]) => !k.startsWith("_")));
+}
+function kvTable(o) {
+  const e = Object.entries(o).filter(([k, v]) => !k.startsWith("_") && typeof v !== "object");
+  if (!e.length) return `<p class="muted">—</p>`;
+  return `<table>${e.map(([k, v]) => `<tr><td class="muted">${esc(k)}</td><td class="num">${typeof v === "number" ? fmt(v) : esc(v)}</td></tr>`).join("")}</table>`;
+}
+function notesBlock(notes) {
+  if (!notes) return "";
+  const text = typeof notes === "string" ? notes : Object.entries(notes)
+    .filter(([k]) => !k.startsWith("_") || true).map(([k, v]) => `${k}: ${v}`).join("\n\n");
+  return `<details class="notes"><summary>notes</summary><pre>${esc(text)}</pre></details>`;
+}
+
+boot();
+</script>
+</body>
+</html>

@@ -247,6 +247,50 @@ export function renderExcluded(excluded) {
 }
 
 /**
+ * A banner when the figures lean on rates that aren't period-specific and
+ * human-verified — so a reader never mistakes a fallback for a firm number.
+ *
+ * Two things put a result on estimated footing, and either is enough:
+ *
+ *  - A revision was extracted automatically and nobody has read it against the
+ *    tariff yet (`provenance.unreviewed`). The numbers are used in full; this
+ *    says how far they've been checked, not that they're discounted.
+ *  - A plan or a stretch of days fell back to the nearest rates on file because
+ *    the archive doesn't carry that plan or reach that far back. The engine
+ *    emits those as warnings on the affected result; a fallback in any ranked
+ *    plan can move which plan wins, so the whole ranking is scanned, not just
+ *    the selected row.
+ *
+ * A file priced entirely at the current, human-reviewed rates trips neither and
+ * shows nothing.
+ */
+export function renderEstimateNote(selected, results) {
+  const el = $("estimate-note");
+  if (!el) return;
+
+  const reasons = [];
+  if (selected?.provenance?.unreviewed?.length) {
+    reasons.push("some of the rates were extracted automatically and haven't been checked against the tariff by a person yet");
+  }
+  const fellBack = /priced at the .* revision|rates have no plan|did not publish|used \d{4} instead|are approximate/i;
+  if (results.some((r) => (r.warnings ?? []).some((w) => fellBack.test(w)))) {
+    reasons.push("some plans or dates fall back to the nearest rates on file rather than the rates that were in force at the time");
+  }
+
+  if (!reasons.length) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
+  }
+  el.classList.remove("hidden");
+  el.innerHTML = notice(
+    "warn",
+    "Estimate — based on the rates currently on file",
+    `${reasons.join("; ")}. Treat the totals as approximate.`,
+  );
+}
+
+/**
  * Which rate revisions produced the figures on screen.
  *
  * Shown whenever more than one applied, because that is the case where a single

@@ -450,6 +450,12 @@ footer {
 }
 footer p { margin: 0 0 8px; }
 footer a { color: inherit; }
+.colophon {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  align-items: baseline;
+}
 .colophon code {
   font-family: var(--mono);
   font-size: 0.95em;

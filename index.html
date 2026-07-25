@@ -52,6 +52,7 @@
         <label>
           Analysis period
           <select id="period">
+            <option value="relevant">One true-up year (recommended)</option>
             <option value="full">Everything in the file</option>
             <option value="ytd">Year to date</option>
           </select>
@@ -147,6 +148,7 @@
     <h2><span class="num">3</span> What each plan would cost</h2>
 
     <div id="coverage-warning"></div>
+    <div id="estimate-note"></div>
 
     <div class="result-head">
       <div id="headline"></div>
@@ -373,6 +375,7 @@
   <p id="rate-provenance"></p>
   <p class="colophon">
     <a href="https://github.com/thinkaliker/EnergyCalculator" target="_blank" rel="noopener">Source on GitHub</a>
+    <a href="datasets.html">Browse rate datasets</a>
     <!-- Filled in from build-info.json, which only exists on a deployed copy.
          Stays empty when the folder is served locally. -->
     <span id="build-info"></span>

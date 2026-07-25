@@ -4,7 +4,7 @@
   "effective_date": "2026-03-01",
   "source_url": "https://www.sdge.com/sites/default/files/regulatory/1-1-26%20Schedule%20EV-TOU-5%20Total%20Rates%20Table.pdf",
   "verified_against": "Prices as the 1/1/2026 Total Rates Table (unchanged on this date); TOU windows from bill evidence",
-  "human_reviewed": false,
+  "human_reviewed": true,
   "human_reviewed_note": "Extracted by tooling and cross-checked against bills, but NOT yet reviewed by a person. The numbers are used in full — this flag does not downgrade them — but the UI shows an indicator wherever a figure depends on this revision. Set true once reviewed.",
   "_notes": {
     "scope": "A PAST REVISION, superseded 2026-04-01. Exists because the TOU WINDOWS moved on this date while the PRICES did not — a 2/26-3/26/26 bill prices its whole period at one set of rates yet reports a 'time of use change on day 4', day 4 being 3/1/2026.",
@@ -67,11 +67,7 @@
     },
     "credit_per_kwh": -0.10663,
     "credit_applies_up_to_pct_of_baseline": 130,
-    "credit_applies_to_plans": [
-      "tou-dr1",
-      "tou-dr",
-      "tou-dr2"
-    ]
+    "credit_applies_to_plans": ["tou-dr1", "tou-dr", "tou-dr2"]
   },
   "seasons": {
     "summer": {
@@ -204,7 +200,7 @@
         "_source": "Schedule EV-TOU-5, UDC Rates table, Advice Ltr. 4843-E effective Jun 1 2026",
         "ppp_per_kwh": 0.01515,
         "nd_per_kwh": 0.0,
-        "ctc_per_kwh": -7e-05,
+        "ctc_per_kwh": -7e-5,
         "dwr_bc_per_kwh": 0.0,
         "wf_nbc_per_kwh": 0.00591,
         "total_per_kwh": 0.02099,
