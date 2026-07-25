@@ -36,6 +36,16 @@
       "id": "water-heater",
       "name": "Heat pump water heater",
       "path": "water-heater.json"
+    },
+    {
+      "id": "ac-summer",
+      "name": "Air conditioning, summer only",
+      "path": "ac-summer.json"
+    },
+    {
+      "id": "heating-winter",
+      "name": "Heating, winter only",
+      "path": "heating-winter.json"
     }
   ]
 }
