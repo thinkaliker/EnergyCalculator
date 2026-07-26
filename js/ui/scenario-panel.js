@@ -11,6 +11,7 @@ import { applyLoadProfile, describePeriod } from "../period.js";
 import { currentOverlay, nemMode } from "./setup.js";
 import { activeIntervals, costOptions } from "./compute.js";
 import { byCost } from "./results.js";
+import { explainLoadTiming } from "../explain.js";
 import { destroy, drawLoadChart } from "./charts.js";
 
 export const solarProfile = () => state.profiles.find((p) => p.kind === "generation") ?? null;
@@ -204,6 +205,14 @@ export function renderAddedLoad() {
   bits.push(`Best plan today is <strong>${esc(baseline.before.planName)}</strong> at ` +
     `${money(baseline.before.total)}; afterwards it is <strong>${esc(winner.best.after.planName)}</strong> ` +
     `at ${money(winner.best.after.total)}.`);
+
+  // Why the winning plan is the winning plan: whether the added load lands in
+  // its expensive hours or dodges them.
+  if (profile && profileKWh > 0) {
+    const afterPlan = state.utility.plans.find((p) => p.id === winner.best.after.planId);
+    const timing = explainLoadTiming(profile, afterPlan, intervals);
+    if (timing) bits.push(esc(timing));
+  }
 
   if (battery) {
     // The two strategies laid side by side. Each delta is measured against the

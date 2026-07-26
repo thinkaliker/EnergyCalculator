@@ -13,7 +13,7 @@ import { $, esc, notice, stat, fmtDate, getJSON } from "./js/ui/dom.js";
 import { state } from "./js/ui/state.js";
 import {
   buildZoneSelect, buildCitySelect, buildProviderSelect, buildVintageSelect,
-  buildNbtVintageSelect, syncVintageToProvider, syncNemControls, nemMode,
+  buildCurrentPlanSelect, buildNbtVintageSelect, syncVintageToProvider, syncNemControls, nemMode,
   currentOverlay, renderSolarDetected, applyBillFields, resetSetup,
 } from "./js/ui/setup.js";
 import { parseBill } from "./js/bill.js";
@@ -21,7 +21,7 @@ import { activeIntervals, costOptions } from "./js/ui/compute.js";
 import {
   renderTrimNote, renderTrueUp, renderCoverage, meterEligiblePlans, byCost,
   renderHeadline, renderTable, renderExcluded, renderRateRevisions, renderEstimateNote,
-  renderProvenance, renderBuildInfo, providerRows, renderProviderTable,
+  renderProvenance, renderBuildInfo, providerRows, renderProviderTable, renderProviderWhy,
 } from "./js/ui/results.js";
 import {
   renderAddedLoad, onProfileChange, syncBatteryControls, solarYield, resetScenario,
@@ -66,6 +66,7 @@ async function init() {
   buildZoneSelect();
   buildCitySelect();
   buildProviderSelect();
+  buildCurrentPlanSelect();
   buildVintageSelect();
   buildNbtVintageSelect();
   renderProvenance(index);
@@ -85,7 +86,7 @@ async function init() {
   $("bill-pick")?.addEventListener("click", () => $("bill-file").click());
   $("bill-file")?.addEventListener("change", (e) => e.target.files[0] && readBill(e.target.files[0]));
 
-  for (const id of ["period", "trim", "zone", "baseline-type", "nbt-vintage", "separate-ev-meter"]) {
+  for (const id of ["period", "trim", "zone", "baseline-type", "current-plan", "nbt-vintage", "separate-ev-meter"]) {
     $(id).addEventListener("change", recompute);
   }
   $("city").addEventListener("change", () => {
@@ -355,11 +356,17 @@ function recompute() {
   }
   const selected = results.find((r) => r.planId === state.selectedPlanId) ?? results[0];
 
+  // The plan the household is on today, if they told us — so the headline can
+  // say what switching saves. It is already costed in `results` (same overlay),
+  // so no extra costing is needed; a current plan the NEM rules excluded simply
+  // has no row, and the switch line is dropped.
+  const currentResult = results.find((r) => r.planId === $("current-plan").value) ?? null;
+
   renderCoverage(intervals);
   renderEstimateNote(selected, results);
   renderRateRevisions(selected);
   renderTrueUp(intervals, selected);
-  renderHeadline(results, intervals);
+  renderHeadline(results, intervals, currentResult);
   renderTable(results, (planId) => { state.selectedPlanId = planId; recompute(); });
   drawPlanChart(results);
   drawShapeChart(intervals);
@@ -378,6 +385,7 @@ function renderProviders(intervals) {
   $("provider-chart-plan").textContent = plan ? plan.name : "";
   const rows = providerRows(intervals, state.selectedPlanId);
   renderProviderTable(rows);
+  renderProviderWhy(rows);
   drawProviderChart(rows);
 }
 

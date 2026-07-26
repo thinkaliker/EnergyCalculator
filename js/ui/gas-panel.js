@@ -14,6 +14,7 @@ import { applyLoadProfile, describePeriod } from "../period.js";
 import { distributeTherms, costGasYear, gasSavingsFromRemoving } from "../gas-cost.js";
 import { currentOverlay } from "./setup.js";
 import { activeIntervals, costOptions } from "./compute.js";
+import { explainLoadTiming } from "../explain.js";
 
 // The three swappable appliances plus the non-swappable "other" bucket. Field
 // ids are kept in one place so main.js can wire them without re-deriving them.
@@ -138,11 +139,14 @@ export function renderGasPanel() {
     }
 
     const net = electricAdded - gasSaved;
+    const selectedPlan = state.utility.plans.find((p) => p.id === state.selectedPlanId);
+    const timing = explainLoadTiming(profile, selectedPlan, intervals);
     $(SWAP_CARD[id]).innerHTML = notice(net < 0 ? "good" : "warn",
       net < 0 ? `Saves about ${money(-net)} a year` : `Costs about ${money(net)} a year more`,
       `Dropping the ${esc(a.name.toLowerCase())} cuts your gas bill by ${money(gasSaved)} a year. ` +
       `Running a ${esc(profile?.name.toLowerCase() ?? "replacement")} at ${kWh.toLocaleString()} kWh/yr ` +
       `on <strong>${esc(planName)}</strong> adds about ${money(electricAdded)} a year to your electric bill ` +
-      `(scaled from your ${period.dayCount}-day file to a full year).`);
+      `(scaled from your ${period.dayCount}-day file to a full year).` +
+      (timing ? ` ${esc(timing)}` : ""));
   }
 }

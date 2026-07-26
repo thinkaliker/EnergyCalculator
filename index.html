@@ -99,6 +99,11 @@
         <small>All-electric needs electric space or water heating, and must be applied for.</small>
       </label>
       <label>
+        Current plan
+        <select id="current-plan"><option value="">Not sure</option></select>
+        <small>The rate plan you're on now, so we can show what switching saves.</small>
+      </label>
+      <label>
         Solar
         <select id="nem">
           <option value="none">No solar</option>
@@ -186,6 +191,7 @@
         Same plan, same delivery charges, same house. Only the generation half of
         the bill changes, and with it the PCIA exit fee your rate group carries.
       </p>
+      <div id="provider-why"></div>
       <div class="table-scroll">
         <table id="provider-table">
           <thead>
@@ -265,12 +271,18 @@
   <section class="step hidden" id="step-gas">
     <h2><span class="num">4</span> Gas charges &amp; fuel switching</h2>
     <p class="lede small">
-      The rest of this tool is about electricity. This one section is about the
-      gas meter, and only to answer one question: if you swapped a gas appliance
-      for an electric one, would the bill go up or down? Enter what you burn gas
-      on &mdash; a real bill prints your yearly therms &mdash; and adjust the
-      electric side if you have a better figure.
+      One question, about the gas meter: if you swapped a gas appliance for an
+      electric one, would the bill go up or down?
     </p>
+    <details class="more"><summary>How to fill this in</summary>
+      <p>
+        The rest of this tool is about electricity. This one section is about the
+        gas meter, and only to answer one question: if you swapped a gas appliance
+        for an electric one, would the bill go up or down? Enter what you burn gas
+        on &mdash; a real bill prints your yearly therms &mdash; and adjust the
+        electric side if you have a better figure.
+      </p>
+    </details>
 
     <div class="controls grid">
       <label>
@@ -299,11 +311,17 @@
 
     <h3>What each swap would do</h3>
     <p class="lede small">
-      Each card removes just that appliance&rsquo;s gas &mdash; tiered against
-      the rest of your usage &mdash; and adds the electric replacement to your
-      selected plan. The electric kWh is estimated from the therms; overwrite it
-      with a real figure if you have one. Everything here is per year.
+      Each card removes that appliance&rsquo;s gas and adds the electric
+      replacement to your selected plan.
     </p>
+    <details class="more"><summary>Details</summary>
+      <p>
+        Each card removes just that appliance&rsquo;s gas &mdash; tiered against
+        the rest of your usage &mdash; and adds the electric replacement to your
+        selected plan. The electric kWh is estimated from the therms; overwrite it
+        with a real figure if you have one. Everything here is per year.
+      </p>
+    </details>
 
     <div class="gas-swaps">
       <div class="gas-swap-card">
@@ -347,10 +365,14 @@
   <section class="step hidden" id="step-load">
     <h2><span class="num">5</span> What if something else changed?</h2>
     <p class="lede small">
-      Everything here is applied as an hourly <em>shape</em>, not a monthly
-      total. Charging an EV at 1am and at 6pm cost very different amounts for
-      identical kWh, and the same is true in reverse for a solar panel.
+      Everything here is applied as an hourly <em>shape</em>, not a monthly total.
     </p>
+    <details class="more"><summary>Why that matters</summary>
+      <p>
+        Charging an EV at 1am and at 6pm cost very different amounts for
+        identical kWh, and the same is true in reverse for a solar panel.
+      </p>
+    </details>
 
     <div class="controls grid">
       <label>
@@ -420,31 +442,38 @@
     <div class="caveats" id="caveats">
       <div class="caveat">
         <b>Solar and the true-up are modelled; the payout rate is not</b>
-        <p>NEM 2.0 nets exports against imports at retail, NEM 3.0 credits them at SDG&amp;E's published hourly export prices, and for NEM 2.0 the annual true-up is worked out too: the credit standing at your anniversary is kept by the utility, and whether you are paid anything turns on kilowatt-hours, not on that balance — export more kWh than you import across the twelve months and the surplus earns Net Surplus Compensation, otherwise nothing is due no matter how much credit you banked. What isn't modelled is the rate that surplus is paid at. SDG&amp;E resets it monthly from a rolling average of wholesale prices, so a household with genuine surplus does slightly better than shown.</p>
+        <details class="more"><summary>Why</summary>
+        <p>NEM 2.0 nets exports against imports at retail, NEM 3.0 credits them at SDG&amp;E's published hourly export prices, and for NEM 2.0 the annual true-up is worked out too: the credit standing at your anniversary is kept by the utility, and whether you are paid anything turns on kilowatt-hours, not on that balance — export more kWh than you import across the twelve months and the surplus earns Net Surplus Compensation, otherwise nothing is due no matter how much credit you banked. What isn't modelled is the rate that surplus is paid at. SDG&amp;E resets it monthly from a rolling average of wholesale prices, so a household with genuine surplus does slightly better than shown.</p></details>
       </div>
       <div class="caveat">
         <b>What-if scenarios are modelled, not quoted</b>
-        <p>The solar curve is a clear-sky model for a generic south-facing San Diego roof — it knows the sun's position exactly and knows nothing about weather, your roof's angle, or the tree next to it. That is why the annual output is yours to enter: put the number from a real quote in and only the shape is being assumed. The battery is scheduled by a simple rule that reacts to today's prices with no forecast, so a real system managed by its installer should beat what's shown here. Payback is arithmetic on the numbers you supplied and includes no tax credit, rebate, financing or degradation.</p>
+        <details class="more"><summary>Why</summary>
+        <p>The solar curve is a clear-sky model for a generic south-facing San Diego roof — it knows the sun's position exactly and knows nothing about weather, your roof's angle, or the tree next to it. That is why the annual output is yours to enter: put the number from a real quote in and only the shape is being assumed. The battery is scheduled by a simple rule that reacts to today's prices with no forecast, so a real system managed by its installer should beat what's shown here. Payback is arithmetic on the numbers you supplied and includes no tax credit, rebate, financing or degradation.</p></details>
       </div>
       <div class="caveat">
         <b>Eligibility is only enforced where the price would be meaningless</b>
-        <p>Two rules are enforced: a solar tariff drops the plans it forbids, and EV-TOU is hidden unless you say you have a separately metered charger, because it prices a meter your usage file does not describe. Everything else is priced whether or not you qualify — TOU-ELEC is capped at 10,000 customers, and the EV plans need a registered EV.</p>
+        <details class="more"><summary>Why</summary>
+        <p>Two rules are enforced: a solar tariff drops the plans it forbids, and EV-TOU is hidden unless you say you have a separately metered charger, because it prices a meter your usage file does not describe. Everything else is priced whether or not you qualify — TOU-ELEC is capped at 10,000 customers, and the EV plans need a registered EV.</p></details>
       </div>
       <div class="caveat">
         <b>EV-TOU is priced as one meter, and it is really two</b>
-        <p>If you tick the separately metered charger box, EV-TOU is costed by running your whole-home file through it. That is not what such a bill looks like: the house sits on a whole-home schedule and only the charger sits on EV-TOU, so a real customer gets two sets of charges. Splitting them means guessing how much of your usage was charging, which the file does not record. Nothing here has been checked against an actual EV-TOU bill. Treat its total as a rough single-meter approximation, not a quote — and note it is also the only residential schedule with no Base Services Charge, which flatters it against every other plan.</p>
+        <details class="more"><summary>Why</summary>
+        <p>If you tick the separately metered charger box, EV-TOU is costed by running your whole-home file through it. That is not what such a bill looks like: the house sits on a whole-home schedule and only the charger sits on EV-TOU, so a real customer gets two sets of charges. Splitting them means guessing how much of your usage was charging, which the file does not record. Nothing here has been checked against an actual EV-TOU bill. Treat its total as a rough single-meter approximation, not a quote — and note it is also the only residential schedule with no Base Services Charge, which flatters it against every other plan.</p></details>
       </div>
       <div class="caveat">
         <b>One rate revision per period</b>
-        <p>Rates change several times a year. The calculator applies a single set to the whole period, which introduces a small error when your data spans a change.</p>
+        <details class="more"><summary>Why</summary>
+        <p>Rates change several times a year. The calculator applies a single set to the whole period, which introduces a small error when your data spans a change.</p></details>
       </div>
       <div class="caveat">
         <b>Some fees are inferred, not published</b>
-        <p>The franchise fee bases were derived from a real bill and reproduce it to the cent, but they are not stated in any tariff. Climate credits and other one-off bill credits are not included.</p>
+        <details class="more"><summary>Why</summary>
+        <p>The franchise fee bases were derived from a real bill and reproduce it to the cent, but they are not stated in any tariff. Climate credits and other one-off bill credits are not included.</p></details>
       </div>
       <div class="caveat">
         <b>Gas swaps compare a therm figure to a plan, not a quote</b>
-        <p>The three swap cards use the therms you enter and a simple efficiency ratio to estimate the electric replacement's kWh &mdash; furnace efficiency against a heat-pump COP for heating, tank efficiency against a heat-pump water heater for hot water. The stove has no such standardized ratio, so its kWh is a plain editable default rather than a conversion. Gas figures are yearly by nature &mdash; there is no gas usage file to import &mdash; so the electric side is scaled from your imported period to a full year, unlike every other total here, which is never annualized. The gas price itself covers baseline and above-baseline tiers but leaves out small per-therm surcharges and the climate credit, and nothing models the cost, rebates, or sizing of the new equipment.</p>
+        <details class="more"><summary>Why</summary>
+        <p>The three swap cards use the therms you enter and a simple efficiency ratio to estimate the electric replacement's kWh &mdash; furnace efficiency against a heat-pump COP for heating, tank efficiency against a heat-pump water heater for hot water. The stove has no such standardized ratio, so its kWh is a plain editable default rather than a conversion. Gas figures are yearly by nature &mdash; there is no gas usage file to import &mdash; so the electric side is scaled from your imported period to a full year, unlike every other total here, which is never annualized. The gas price itself covers baseline and above-baseline tiers but leaves out small per-therm surcharges and the climate credit, and nothing models the cost, rebates, or sizing of the new equipment.</p></details>
       </div>
     </div>
   </section>

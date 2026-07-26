@@ -8,6 +8,7 @@
 import { $, esc, money, notice, fmtDate } from "./dom.js";
 import { state } from "./state.js";
 import { costPlan } from "../cost.js";
+import { explainRank, explainProvider, driverList } from "../explain.js";
 import { describePeriod, relevantPeriods } from "../period.js";
 import { trueUp } from "../trueup.js";
 import { overlaysForCity, nemMode } from "./setup.js";
@@ -162,11 +163,12 @@ export const withinNoise = (delta, best) => delta > 0.005 && delta <= best.total
 const isBest = (r, best) =>
   r.total - best.total < 0.005 && Math.abs(r.unusedCredit - best.unusedCredit) < 0.005;
 
-export function renderHeadline(results, intervals) {
+export function renderHeadline(results, intervals, currentResult = null) {
   const best = results[0];
   const p = describePeriod(intervals, state.utility);
   const worst = results.at(-1);
   const spread = worst.total - best.total;
+  const planOf = (id) => state.utility.plans.find((pl) => pl.id === id) ?? null;
 
   // A net exporter's bill floors on the non-bypassable charges and several plans
   // tie there; that has its own explanation below, so the generic near-tie note
@@ -179,6 +181,26 @@ export function renderHeadline(results, intervals) {
   const closeRows = results.filter((r) => r.total - best.total <= best.total * NOISE_PCT);
   const closeCall = !floored && closeRows.length > 1;
   const closeGap = closeRows.at(-1).total - best.total;
+
+  // Switching from the plan the household is on today, when they named one. The
+  // row is already in `results`, so this is a lookup, not a re-costing.
+  const switching = currentResult && currentResult.planId !== best.planId;
+  const currentGap = currentResult ? currentResult.total - best.total : 0;
+  const switchLine = !currentResult
+    ? ""
+    : switching && currentGap > 0.5
+      ? `<div class="switch"><strong>Switching from ${esc(currentResult.planName)} would save ` +
+        `${money(currentGap)}</strong> over ${esc(p.label)}.</div>`
+      : `<div class="switch"><strong>You're already on the cheapest plan for your usage.</strong> ` +
+        `Nothing to switch to here.</div>`;
+
+  // Why the winner wins — against the current plan if they're switching, else
+  // the runner-up. The full per-line breakdown sits behind a disclosure.
+  const ref = switching && currentGap > 0.5 ? currentResult : results[1];
+  const why = ref
+    ? explainRank({ winner: best, other: ref, intervals, winnerPlan: planOf(best.planId), otherPlan: planOf(ref.planId) })
+    : null;
+  const breakdown = ref ? renderDriverList(best, ref) : "";
 
   $("headline").innerHTML = `
     <div class="headline">
@@ -202,7 +224,28 @@ export function renderHeadline(results, intervals) {
             `Whether you are paid anything depends on kilowatt-hours, not on that balance.`
           : ""}
       </div>
+      ${switchLine}
+      ${why ? `<div class="why">${esc(why)}</div>` : ""}
+      ${breakdown}
     </div>`;
+}
+
+/** The plain-language line-by-line difference between two plans, in a disclosure. */
+function renderDriverList(winner, other) {
+  const items = driverList(winner, other);
+  if (!items.length) return "";
+  const rows = items.map((d) =>
+    `<li>${esc(d.label)}: <strong>${esc(d.text)}</strong> on ${esc(winner.planName)}</li>`).join("");
+  return `<details class="more"><summary>How ${esc(winner.planName)} and ${esc(other.planName)} differ</summary>` +
+    `<ul class="driver-list">${rows}</ul></details>`;
+}
+
+/** One-line "which provider to buy from", above the provider table. */
+export function renderProviderWhy(rows) {
+  const el = $("provider-why");
+  if (!el) return;
+  const msg = explainProvider(rows);
+  el.innerHTML = msg ? notice("info", "Which provider to pick", esc(msg)) : "";
 }
 
 /**

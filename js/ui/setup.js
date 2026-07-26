@@ -32,6 +32,20 @@ export function buildCitySelect() {
   $("city").value = "San Diego";
 }
 
+/**
+ * The rate schedules the household could be on today, so the ranking can say
+ * what switching away from their current one saves. Blank ("Not sure") means no
+ * switch comparison is drawn — the ranking then explains itself against the
+ * runner-up instead.
+ */
+export function buildCurrentPlanSelect() {
+  const opts = [`<option value="">Not sure</option>`];
+  for (const p of state.utility.plans) {
+    opts.push(`<option value="${esc(p.id)}">${esc(p.name.split(" — ")[0])}</option>`);
+  }
+  $("current-plan").innerHTML = opts.join("");
+}
+
 export const currentCity = () =>
   state.cities?.cities.find((c) => c.name === $("city").value) ?? null;
 
@@ -135,6 +149,7 @@ export const currentOverlay = () =>
 export function resetSetup() {
   $("zone").selectedIndex = 0;
   $("baseline-type").value = "basic";
+  $("current-plan").value = "";
   $("separate-ev-meter").checked = false;
   $("nem").value = "none";
   syncNemControls();

@@ -216,6 +216,24 @@ h1 em { font-style: normal; color: var(--accent); }
 .how ol { color: var(--text-dim); font-size: 0.9rem; padding-left: 20px; }
 a { color: var(--accent); }
 
+/* Reusable disclosure: a scannable summary line with the detail one click away.
+   Used to keep the caveats and step intros short by default without cutting a
+   word of the explanation behind them. */
+details.more { margin-top: 6px; }
+details.more > summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 550;
+  list-style: none;
+}
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary::before { content: "▸ "; }
+details.more[open] > summary::before { content: "▾ "; }
+details.more > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+details.more > :not(summary) { margin-top: 8px; color: var(--text-dim); font-size: 0.9rem; }
+details.more ol, details.more ul { padding-left: 20px; }
+
 /* --- controls ---------------------------------------------------------- */
 
 .controls { display: flex; flex-wrap: wrap; gap: 20px; align-items: start; }
@@ -310,6 +328,11 @@ label.check span { display: flex; flex-direction: column; gap: 2px; }
 }
 .headline .big { font-size: 1.35rem; font-weight: 640; letter-spacing: -0.015em; }
 .headline .sub { color: var(--text-dim); font-size: 0.92rem; margin-top: 4px; }
+.headline .switch { margin-top: 10px; font-size: 0.98rem; }
+.headline .why { margin-top: 6px; color: var(--text-dim); font-size: 0.92rem; }
+.headline details.more { margin-top: 10px; }
+.driver-list { margin: 0; }
+.driver-list li { margin: 2px 0; }
 
 /* --- table ------------------------------------------------------------- */
 
