@@ -303,7 +303,7 @@ check("localDateKey is local, not UTC", localDateKey(new Date(2026, 0, 1, 23, 30
 
 // --- tiered pricing (DR) ---------------------------------------------------
 // One winter day, coastal basic allowance 9.2 kWh/day, so the 130% tier
-// boundary sits at 11.96 kWh. Delivery is 0.22876 below and 0.33539 above.
+// boundary sits at 11.96 kWh. Delivery is 0.22491 below and 0.33192 above.
 const oneDay = (kwhPerInterval, count) =>
   Array.from({ length: count }, (_, i) => ({
     start: new Date(2026, 0, 5, Math.floor(i / 4), (i % 4) * 15),
@@ -315,12 +315,12 @@ const oneDay = (kwhPerInterval, count) =>
 
 const under = costPlan({ utility, planId: "dr", intervals: oneDay(0.1, 96), climateZone: "coastal" });
 check("dr: baseline allowance for 1 winter day", under.baselineAllowanceKWh, 9.2, 1e-9);
-check("dr: 9.6 kWh all in tier 1", under.lines.delivery, 9.6 * 0.22876, 1e-6);
+check("dr: 9.6 kWh all in tier 1", under.lines.delivery, 9.6 * 0.22491, 1e-6);
 
 const over = costPlan({ utility, planId: "dr", intervals: oneDay(0.25, 96), climateZone: "coastal" });
 // 24 kWh: first 11.96 at tier 1, remaining 12.04 at tier 2.
-check("dr: 24 kWh splits across tiers", over.lines.delivery, 11.96 * 0.22876 + 12.04 * 0.33539, 1e-6);
-check("dr: generation is flat across tiers", over.lines.generation, 24 * 0.18274, 1e-6);
+check("dr: 24 kWh splits across tiers", over.lines.delivery, 11.96 * 0.22491 + 12.04 * 0.33192, 1e-6);
+check("dr: generation is flat across tiers", over.lines.generation, 24 * 0.18808, 1e-6);
 // DR's baseline credit is folded into its tier-1 price; applying it again would
 // double-count, so the credit line must stay zero.
 check("dr: no separate baseline credit", over.lines.baselineCredit, 0);
@@ -331,9 +331,9 @@ check("dr: desert zone is cheaper for same usage", desert.lines.delivery < over.
 
 // --- baseline credit on TOU-DR1 -------------------------------------------
 const dr1 = costPlan({ utility, planId: "tou-dr1", intervals: oneDay(0.25, 96), climateZone: "coastal" });
-check("tou-dr1: credit capped at 130% of baseline", dr1.lines.baselineCredit, 11.96 * -0.10663, 1e-6);
+check("tou-dr1: credit capped at 130% of baseline", dr1.lines.baselineCredit, 11.96 * -0.10702, 1e-6);
 const dr1Small = costPlan({ utility, planId: "tou-dr1", intervals: oneDay(0.05, 96), climateZone: "coastal" });
-check("tou-dr1: credit limited by usage when under baseline", dr1Small.lines.baselineCredit, 4.8 * -0.10663, 1e-6);
+check("tou-dr1: credit limited by usage when under baseline", dr1Small.lines.baselineCredit, 4.8 * -0.10702, 1e-6);
 
 // --- fixed charges ---------------------------------------------------------
 // EV-TOU overrides the file-level block: no service charge, but a minimum bill.
@@ -350,12 +350,12 @@ const cca = costPlan({ utility, planId: "tou-dr1", intervals: oneDay(0.25, 96), 
 check("cca: delivery unchanged", cca.lines.delivery, bundled.lines.delivery, 1e-9);
 check("cca: fixed unchanged", cca.lines.fixed, bundled.lines.fixed, 1e-9);
 check("cca: generation differs", cca.lines.generation !== bundled.lines.generation, true);
-check("cca: pcia charged", cca.lines.pcia, 24 * 0.03564, 1e-6);
+check("cca: pcia charged", cca.lines.pcia, 24 * 0.03348, 1e-6);
 check("bundled: no pcia", bundled.lines.pcia, 0);
 
 // PCIA vintage matters: 2009 and 2024 differ by more than 3x.
 const v2009 = costPlan({ utility, planId: "tou-dr1", intervals: oneDay(0.25, 96), climateZone: "coastal", overlay, pciaVintage: 2009 });
-check("cca: 2009 vintage pcia differs from 2021", v2009.lines.pcia, 24 * 0.01538, 1e-6);
+check("cca: 2009 vintage pcia differs from 2021", v2009.lines.pcia, 24 * 0.01400, 1e-6);
 
 // CEA's rate relief credit reduces generation rather than being folded in.
 const cea = JSON.parse(readFileSync("rates/cca-cea-clean-impact.json", "utf8"));
@@ -422,27 +422,30 @@ check("profile: same kWh costs more in the evening", eveCost.total > nightCost.t
 // grew a clamp and an import/export split so solar could ride the same path;
 // these totals must not move by so much as a rounding bit for that reason. A
 // load profile is always positive, so the new branch is dead code for all six —
-// this is the check that proves it stayed dead.
+// the companion "exports nothing" check is what proves it stayed dead, and that
+// one holds no matter what the rates say.
 //
 // These use rates/sdge.json with no archive, so they are pinned to the CURRENT
-// revision. That matters for the fixture day, Jan 5: under the current tariff
-// 10am-2pm is winter super-off-peak, but it was ordinary off-peak before
-// 2026-03-01. Costing a real January against the archive gives a different and
-// higher answer — see the rate-revision checks below. Both are right; they are
-// answers to different questions.
+// revision and must be re-derived whenever a new advice letter lands — the
+// figures below are the 2026-08-01 revision (Advice Ltr. 4868-E). That the
+// pinning is rate-dependent also matters for the fixture day, Jan 5: under the
+// current tariff 10am-2pm is winter super-off-peak, but it was ordinary
+// off-peak before 2026-03-01. Costing a real January against the archive gives
+// a different and higher answer — see the rate-revision checks below. Both are
+// right; they are answers to different questions.
 const PINNED = {
-  "ev-evening": 10.1856032,
-  "ev-midday": 8.7877432,
-  "ev-overnight": 8.7877432,
-  "heat-pump": 9.698182654,
-  "pool-pump": 9.090282584,
-  "water-heater": 9.722516409,
+  "ev-evening": 10.2320708,
+  "ev-midday": 8.7933108,
+  "ev-overnight": 8.7933108,
+  "heat-pump": 9.730378164,
+  "pool-pump": 9.104683694,
+  "water-heater": 9.755421469,
 };
 for (const [id, want] of Object.entries(PINNED)) {
   const prof = JSON.parse(readFileSync(`profiles/${id}.json`, "utf8"));
   const series = applyLoadProfile(day, prof, 3650);
   const got = costPlan({ utility, planId: "tou-dr1", intervals: series, climateZone: "coastal" });
-  check(`profile: ${id} costs exactly what it did before the solar change`, got.total, want, 1e-8);
+  check(`profile: ${id} matches its pinned total for this revision`, got.total, want, 1e-8);
   check(`profile: ${id} exports nothing`, series.every((iv) => iv.generationKWh === 0), true);
 }
 
@@ -497,7 +500,7 @@ check("nem2: import-only day costs more than the netted one", importOnly.total >
 
 // The netted delivery price is retail minus NBC, and NBC is billed separately —
 // so the two together must come back to the full retail price.
-const grossDelivery = 96 * 0.4 * 0.33539;
+const grossDelivery = 96 * 0.4 * 0.33192;
 check("nem2: netted delivery + NBC reconstructs full retail delivery",
   importOnly.lines.delivery + importOnly.lines.nonbypassable, grossDelivery, 1e-9);
 
@@ -590,7 +593,7 @@ check("nem2: net total is still negative", mixed.totalKWh < 0, true);
 // On-peak net = 20 x 0.5 = 10 kWh at the netted delivery price. The exporting
 // periods contribute nothing to delivery.
 check("nem2: delivery charged on the positive period only",
-  mixed.lines.delivery, 10 * (0.33539 - NBC), 1e-9);
+  mixed.lines.delivery, 10 * (0.33192 - NBC), 1e-9);
 // Generation is not floored — the CCA credits negative periods at full rate,
 // which the reference bill shows explicitly.
 check("nem2: generation still credits the exporting periods", mixed.lines.generation < 0, true);
@@ -1125,6 +1128,13 @@ const halve = (node) => {
 };
 const older = { ...halve(utility), effective_date: "2026-01-01" };
 
+// The newer revision is the real file re-dated to Jun 1 2026. Pinning the
+// boundary here rather than using rates/sdge.json's own effective_date is what
+// keeps this block from breaking every time SDG&E files a new advice letter —
+// the prices still come from the live file, only the date is fixed. The Jun 1
+// choice is load-bearing for the season note below.
+const newer = { ...utility, effective_date: "2026-06-01" };
+
 // Ten days either side of Jun 1 2026, one kWh an hour throughout.
 //
 // Note this window also crosses the winter/summer boundary, which falls on the
@@ -1140,11 +1150,11 @@ const acrossRevision = Array.from({ length: 24 * 20 }, (_, i) => {
 const beforeBoundary = acrossRevision.filter((iv) => iv.start < new Date(2026, 5, 1));
 const afterBoundary = acrossRevision.filter((iv) => iv.start >= new Date(2026, 5, 1));
 const spanCost = (history) =>
-  costPlan({ utility, planId: "tou-dr1", intervals: acrossRevision, climateZone: "coastal", history });
+  costPlan({ utility: newer, planId: "tou-dr1", intervals: acrossRevision, climateZone: "coastal", history });
 
 const atCurrent = spanCost(null);
 const withHist = spanCost(buildHistory({
-  utility, utilityHistory: [older],
+  utility: newer, utilityHistory: [older],
   from: acrossRevision[0].start, to: acrossRevision.at(-1).start,
 }));
 const allOld = costPlan({ utility: older, planId: "tou-dr1", intervals: acrossRevision, climateZone: "coastal" });
@@ -1157,7 +1167,7 @@ check("revisions: and more than all-old rates", withHist.total > allOld.total, t
 // energy after it priced at the new ones. Equality to the cent is what shows the
 // split landed on the right day rather than merely somewhere between.
 const oldHalf = costPlan({ utility: older, planId: "tou-dr1", intervals: beforeBoundary, climateZone: "coastal" });
-const newHalf = costPlan({ utility, planId: "tou-dr1", intervals: afterBoundary, climateZone: "coastal" });
+const newHalf = costPlan({ utility: newer, planId: "tou-dr1", intervals: afterBoundary, climateZone: "coastal" });
 check("revisions: delivery is each segment at its own rates",
   withHist.lines.delivery, oldHalf.lines.delivery + newHalf.lines.delivery, 1e-9);
 check("revisions: and so is generation",
@@ -1173,17 +1183,17 @@ check("revisions: the daily service charge splits by day",
 // period's allowance and prices nearly everything at tier 1 — which would show
 // up here as a cost below the all-old figure.
 const tieredSpan = costPlan({
-  utility, planId: "dr", intervals: acrossRevision, climateZone: "coastal",
-  history: buildHistory({ utility, utilityHistory: [older], from: acrossRevision[0].start, to: acrossRevision.at(-1).start }),
+  utility: newer, planId: "dr", intervals: acrossRevision, climateZone: "coastal",
+  history: buildHistory({ utility: newer, utilityHistory: [older], from: acrossRevision[0].start, to: acrossRevision.at(-1).start }),
 });
 const tieredOld = costPlan({ utility: older, planId: "dr", intervals: acrossRevision, climateZone: "coastal" });
-const tieredNew = costPlan({ utility, planId: "dr", intervals: acrossRevision, climateZone: "coastal" });
+const tieredNew = costPlan({ utility: newer, planId: "dr", intervals: acrossRevision, climateZone: "coastal" });
 check("revisions: a tiered plan splits at the boundary too",
   tieredSpan.total > tieredOld.total && tieredSpan.total < tieredNew.total, true);
 check("revisions: and prorates the allowance rather than doubling it",
   tieredSpan.lines.delivery,
   costPlan({ utility: older, planId: "dr", intervals: beforeBoundary, climateZone: "coastal" }).lines.delivery +
-    costPlan({ utility, planId: "dr", intervals: afterBoundary, climateZone: "coastal" }).lines.delivery,
+    costPlan({ utility: newer, planId: "dr", intervals: afterBoundary, climateZone: "coastal" }).lines.delivery,
   1e-9);
 
 // Two revisions that happen to share a generation price must still bucket
